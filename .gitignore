@@ -1,0 +1,16 @@
+# Secrets & local data — never commit (spec §3.2: data/.master.key is the
+# vault secret; back it up together with the DB, never commit it).
+data/
+*.db
+.master.key
+.env
+
+# Build artifacts
+bin/
+node_modules/
+dist-tmp/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store

@@ -1,0 +1,10 @@
+# Contexto de build mínimo
+data/
+bin/
+docs/
+frontend/
+scripts/
+.git/
+.env
+*.md
+!backend/web/dist/**
