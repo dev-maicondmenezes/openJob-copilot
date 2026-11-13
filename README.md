@@ -3,7 +3,7 @@
 > Local-first job application copilot (Go + SvelteKit, Docker, SQLite).
 > Spec: [`docs/context/spec.md`](docs/context/spec.md) · Plan: [`docs/plan/`](docs/plan/)
 
-**Status: Checkpoint 2 (SPA + PWA) — done.**
+**Status: Checkpoint 3 (SQLite + BYOK) — done.**
 
 ---
 
@@ -58,6 +58,7 @@ Paths tested and documented in [`docs/adr/0001-mdns-local-hostname.md`](docs/adr
 
 - Everything persists in `./data/` (mounted to `/data` in the container).
 - **`data/.master.key`** (created from Checkpoint 3 on) is the AES-GCM key that encrypts your API keys at rest. **It is the vault's secret: back it up together with the DB, never commit it** (`.gitignore` already excludes `data/`).
+- If the master key is lost, stored API keys become unrecoverable (explicit error) — just re-enter your key in `/settings`. See [docs/adr/0004-byok-local-master-key.md](docs/adr/0004-byok-local-master-key.md).
 
 ### Development (without Docker)
 
@@ -89,7 +90,7 @@ Deep links (e.g. reloading `/jobs`) are served by the SPA fallback.
 ```
 backend/          # Go module github.com/maicondmenezes/openjob
 ├── cmd/openjob/  # entrypoint
-├── internal/     # api, config, tenant (reserved for future multi-tenancy)
+├── internal/     # api, config, store (SQLite+migrations+crypto), llm, tenant (reserved)
 └── web/          # SPA bundle embedded with //go:embed
 frontend/         # SvelteKit SPA (Checkpoint 2)
 scripts/          # local DNS setup helpers
@@ -149,6 +150,7 @@ Caminhos testados e documentados em [`docs/adr/0001-mdns-local-hostname.md`](doc
 
 - Tudo persiste em `./data/` (montado em `/data` no container).
 - **`data/.master.key`** (a partir do Checkpoint 3) é a chave AES-GCM que cifra suas chaves de API em repouso. **É o segredo do seu cofre local: faça backup dele junto com o banco, nunca o commite** (o `.gitignore` já exclui `data/`).
+- Se a master key for perdida, as chaves cifradas ficam irrecuperáveis (erro explícito) — basta reconfigurar a API key em `/settings`. Ver [docs/adr/0004-byok-local-master-key.md](docs/adr/0004-byok-local-master-key.md).
 
 ### Desenvolvimento (sem Docker)
 
@@ -181,5 +183,5 @@ são servidos pelo fallback da SPA.
 |---|---|---|
 | 1 | Fundação (Go + chi + Docker + mDNS) | ✅ este release |
 | 2 | SPA SvelteKit + PWA | ✅ este release — [plano](docs/plan/02-spa-pwa.md) |
-| 3 | SQLite + BYOK | ⏳ [plano](docs/plan/03-sqlite-byok.md) |
+| 3 | SQLite + BYOK | ✅ este release — [plano](docs/plan/03-sqlite-byok.md) |
 | 4–9 | Currículo/tailoring, vagas, discovery, Telegram, validação, ATS | ⏳ [plano](docs/plan/README.md) |

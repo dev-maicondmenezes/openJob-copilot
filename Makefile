@@ -15,7 +15,7 @@ dev-api:
 		(cd backend && go install github.com/air-verse/air@latest); \
 	fi; \
 	echo "==> air: Go com hot reload (:8080)"; \
-	(cd backend && "$$air_path" -c .air.toml)
+	(cd backend && OPENJOB_DB_PATH=../data/openjob.db "$$air_path" -c .air.toml)
 
 # dev-web roda o Vite dev server com HMR (:5173, /api via proxy).
 dev-web:
@@ -39,9 +39,10 @@ build: build-spa
 	@echo "==> go build (backend)"
 	(cd backend && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../bin/openjob ./cmd/openjob)
 
-# run starts the server locally (without Docker) on :8080.
+# run starts the server locally (without Docker) on :8080. DB and master key
+# live in ./data (the /data default is the container volume path).
 run: build
-	OPENJOB_PORT=8080 ./bin/openjob
+	OPENJOB_PORT=8080 OPENJOB_DB_PATH=./data/openjob.db ./bin/openjob
 
 test: build-spa
 	cd backend && go test ./...

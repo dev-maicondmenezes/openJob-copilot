@@ -7,7 +7,7 @@
 
 # ---- Stage 1: SPA (SvelteKit + PWA) ----
 FROM node:22-alpine AS spa
-WORKDIR /app
+WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY frontend/ .
@@ -17,6 +17,10 @@ RUN npm run build
 # ---- Stage 2: Go build (static binary, no CGO — keeps modernc.org/sqlite
 # compatible and the image tiny; decision recorded in docs/adr/0002) ----
 FROM golang:1.27-alpine AS build
+# GOPROXY é configurável no build (rede local lenta → use um mirror, ex.:
+#   docker compose build --build-arg GOPROXY=https://goproxy.cn,direct)
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=$GOPROXY
 WORKDIR /src
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download

@@ -6,19 +6,41 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/maicondmenezes/openjob/internal/config"
+	"github.com/maicondmenezes/openjob/internal/llm"
+	"github.com/maicondmenezes/openjob/internal/store"
 	"github.com/maicondmenezes/openjob/web"
 )
 
-func newTestConfig() config.Config {
-	return config.Config{Port: "0", DBPath: "/data/openjob.db", Hostname: "openjob.copilot"}
+// newTestServer boots the full handler stack against a throwaway SQLite file
+// (migrations included) and the real master-key/crypto path.
+func newTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+
+	dbPath := filepath.Join(t.TempDir(), "openjob.db")
+	repo, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = repo.Close() })
+
+	masterKey, err := store.LoadOrCreateMasterKey(store.MasterKeyPath(dbPath))
+	if err != nil {
+		t.Fatalf("master key: %v", err)
+	}
+
+	cfg := config.Config{Port: "0", DBPath: dbPath, Hostname: "openjob.copilot"}
+	srv := httptest.NewServer(New(cfg, slog.Default(), repo, masterKey, llm.NewOpenAIClient()))
+	t.Cleanup(srv.Close)
+	return srv
 }
 
 func TestHealthEndpoint(t *testing.T) {
-	srv := httptest.NewServer(New(newTestConfig(), slog.Default()))
+	srv := newTestServer(t)
 	defer srv.Close()
 
 	resp, err := srv.Client().Get(srv.URL + "/api/health")
@@ -40,7 +62,7 @@ func TestHealthEndpoint(t *testing.T) {
 }
 
 func TestAPIUnknownRouteReturnsJSON404(t *testing.T) {
-	srv := httptest.NewServer(New(newTestConfig(), slog.Default()))
+	srv := newTestServer(t)
 	defer srv.Close()
 
 	resp, err := srv.Client().Get(srv.URL + "/api/nope")
@@ -58,7 +80,7 @@ func TestAPIUnknownRouteReturnsJSON404(t *testing.T) {
 }
 
 func TestSPAFallbackServesIndexForUnknownPath(t *testing.T) {
-	srv := httptest.NewServer(New(newTestConfig(), slog.Default()))
+	srv := newTestServer(t)
 	defer srv.Close()
 
 	resp, err := srv.Client().Get(srv.URL + "/some/deep/link")
@@ -82,7 +104,7 @@ func TestSPAFallbackServesIndexForUnknownPath(t *testing.T) {
 }
 
 func TestSPARootServesIndex(t *testing.T) {
-	srv := httptest.NewServer(New(newTestConfig(), slog.Default()))
+	srv := newTestServer(t)
 	defer srv.Close()
 
 	resp, err := srv.Client().Get(srv.URL + "/")
@@ -98,7 +120,7 @@ func TestSPARootServesIndex(t *testing.T) {
 
 // Deep link real do Checkpoint 2: recarregar /jobs no celular não pode dar 404.
 func TestSPADeepLinkJobsServesShell(t *testing.T) {
-	srv := httptest.NewServer(New(newTestConfig(), slog.Default()))
+	srv := newTestServer(t)
 	defer srv.Close()
 
 	for _, path := range []string{"/jobs", "/settings", "/curriculum", "/applications"} {
@@ -117,7 +139,7 @@ func TestSPADeepLinkJobsServesShell(t *testing.T) {
 }
 
 func TestSPAManifestAndServiceWorkerServed(t *testing.T) {
-	srv := httptest.NewServer(New(newTestConfig(), slog.Default()))
+	srv := newTestServer(t)
 	defer srv.Close()
 
 	// manifest.webmanifest é emitido pelo build do PWA (vite.config.ts).
@@ -140,7 +162,7 @@ func TestSPAImmutableAssetsGetImmutableCache(t *testing.T) {
 	}
 	assetPath := "/" + strings.TrimPrefix(matches[0], "dist/")
 
-	srv := httptest.NewServer(New(newTestConfig(), slog.Default()))
+	srv := newTestServer(t)
 	defer srv.Close()
 
 	resp, err := srv.Client().Get(srv.URL + assetPath)

@@ -11,18 +11,27 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/maicondmenezes/openjob/internal/config"
+	"github.com/maicondmenezes/openjob/internal/llm"
+	"github.com/maicondmenezes/openjob/internal/store"
 	"github.com/maicondmenezes/openjob/web"
 )
 
 // New builds the root http.Handler.
 //   - /api/health → {"status":"ok"} (Checkpoint 1)
+//   - /api/settings/* → BYOK configuration (Checkpoint 3)
 //   - everything else → embedded SPA with index.html fallback so deep links
 //     (e.g. /jobs, /settings after Checkpoint 2) survive a reload.
-func New(cfg config.Config, logger *slog.Logger) http.Handler {
+func New(cfg config.Config, logger *slog.Logger, repo store.Repository, masterKey []byte, llmClient llm.Client) http.Handler {
 	r := chi.NewRouter()
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", handleHealth(cfg))
+		registerSettings(r, &settingsAPI{
+			repo:      repo,
+			masterKey: masterKey,
+			llm:       llmClient,
+			logger:    logger,
+		})
 		r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		})
