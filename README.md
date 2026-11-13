@@ -38,10 +38,11 @@ Paths tested and documented in [`docs/adr/0001-mdns-local-hostname.md`](docs/adr
    ```
    Also add the same line to the VM's own `/etc/hosts` for guaranteed local resolution.
 2. **mDNS sidecar (Mac/Windows guests without avahi):** the `mdns` service in `docker-compose.yml` announces `openjob.local`. Set your LAN IP in `.env` (copy `.env.example`). Keep **one** mDNS responder per network.
-3. **⚠️ Android/Chrome cannot resolve `.local`** (Chromium limitation, unrelated to your setup). On Android use the magic DNS domain — resolves via public DNS to the embedded IP, works everywhere:
-   ```text
-   http://192.168.15.X.nip.io:8080
-   ```
+3. **Hosts-file alias — the project's canonical local name (desktop use):** `openjob.copilot`, resolved via hosts-file entries only (no extra service):
+   - Linux/VM: `echo '192.168.15.X openjob.copilot' | sudo tee -a /etc/hosts`
+   - Windows host (admin PowerShell): `Add-Content C:\Windows\System32\drivers\etc\hosts "192.168.15.X openjob.copilot"` then `ipconfig /flushdns`
+   - Set `OPENJOB_HOSTNAME=openjob.copilot` in `.env` so the app announces/logs the right name.
+4. **Android/Chrome** cannot resolve `.local` (Chromium limitation); mobile access will be a dedicated native Android app after validation (CP8+). Meanwhile, Android can use the magic domain `http://192.168.15.X.nip.io:8080` or the raw IP.
 
 > If neither path works on your network, `http://<your-lan-ip>:8080` always works as a fallback.
 
@@ -111,10 +112,11 @@ Caminhos testados e documentados em [`docs/adr/0001-mdns-local-hostname.md`](doc
    ```
    Adicione a mesma linha ao `/etc/hosts` da própria VM para resolução local garantida.
 2. **Sidecar mDNS (Mac/Windows sem avahi no guest):** o serviço `mdns` do `docker-compose.yml` anuncia `openjob.local`. Configure o IP da LAN no `.env` (copie `.env.example`). Mantenha **um único** respondente mDNS por rede.
-3. **⚠️ Android/Chrome não resolve `.local`** (limitação do Chromium, não é problema de configuração). No Android use o domínio mágico — resolve via DNS público para o IP embutido no nome, funciona em qualquer aparelho:
-   ```text
-   http://192.168.15.X.nip.io:8080
-   ```
+3. **Alias por hosts-file — nome canônico local (uso desktop):** `openjob.copilot`, resolvido apenas por entradas de hosts (sem serviço extra):
+   - Linux/VM: `echo '192.168.15.X openjob.copilot' | sudo tee -a /etc/hosts`
+   - Windows host (PowerShell como admin): `Add-Content C:\Windows\System32\drivers\etc\hosts "192.168.15.X openjob.copilot"` e depois `ipconfig /flushdns`
+   - Configure `OPENJOB_HOSTNAME=openjob.copilot` no `.env` para o app anunciar/logar o nome certo.
+4. **Android/Chrome** não resolve `.local` (limitação do Chromium); o acesso mobile será um app Android nativo dedicado após a validação (CP8+). Enquanto isso, Android pode usar o domínio mágico `http://192.168.15.X.nip.io:8080` ou o IP direto.
 
 > Se nenhum caminho funcionar na sua rede, `http://<ip-local>:8080` sempre funciona.
 
