@@ -29,12 +29,21 @@ docker compose up -d
 
 ### Local DNS (openjob.local)
 
-Two supported paths (see `scripts/setup-dns.sh`):
+Paths tested and documented in [`docs/adr/0001-mdns-local-hostname.md`](docs/adr/0001-mdns-local-hostname.md):
 
-1. **mDNS sidecar (default, native on Linux):** the `mdns` service in `docker-compose.yml` announces `openjob.local` on your LAN. Set your LAN IP in `.env` (copy `.env.example`), then open <http://openjob.local:8080> from your phone on the same Wi-Fi. On macOS/Windows the host's Bonjour usually resolves `.local` automatically.
-2. **dnsmasq on the host (fallback):** `./scripts/setup-dns.sh dnsmasq` prints the exact host-record config to add.
+1. **Native mDNS on Linux (recommended on Linux hosts/VMs):** publish the alias in the single file `/etc/avahi/hosts` and restart avahi — machine hostname stays untouched:
+   ```bash
+   echo '192.168.15.X openjob.local' | sudo tee -a /etc/avahi/hosts
+   sudo systemctl restart avahi-daemon
+   ```
+   Also add the same line to the VM's own `/etc/hosts` for guaranteed local resolution.
+2. **mDNS sidecar (Mac/Windows guests without avahi):** the `mdns` service in `docker-compose.yml` announces `openjob.local`. Set your LAN IP in `.env` (copy `.env.example`). Keep **one** mDNS responder per network.
+3. **⚠️ Android/Chrome cannot resolve `.local`** (Chromium limitation, unrelated to your setup). On Android use the magic DNS domain — resolves via public DNS to the embedded IP, works everywhere:
+   ```text
+   http://192.168.15.X.nip.io:8080
+   ```
 
-> Note: if neither path works on your network, `http://<your-lan-ip>:8080` always works as a fallback.
+> If neither path works on your network, `http://<your-lan-ip>:8080` always works as a fallback.
 
 ### Configuration (environment variables)
 
@@ -93,10 +102,19 @@ docker compose up -d
 
 ### DNS local (openjob.local)
 
-Dois caminhos suportados (veja `scripts/setup-dns.sh`):
+Caminhos testados e documentados em [`docs/adr/0001-mdns-local-hostname.md`](docs/adr/0001-mdns-local-hostname.md):
 
-1. **Sidecar mDNS (padrão; nativo no Linux):** o serviço `mdns` do `docker-compose.yml` anuncia `openjob.local` na rede. Configure o IP da LAN no `.env` (copie `.env.example`) e abra <http://openjob.local:8080> pelo celular no mesmo Wi-Fi. No Mac/Windows o Bonjour do host geralmente já resolve `.local`.
-2. **dnsmasq no host (fallback):** `./scripts/setup-dns.sh dnsmasq` imprime a configuração exata do `host-record`.
+1. **mDNS nativo no Linux (recomendado em hosts/VMs Linux):** publique o alias no **arquivo único** `/etc/avahi/hosts` e reinicie o avahi — o hostname da máquina fica intacto:
+   ```bash
+   echo '192.168.15.X openjob.local' | sudo tee -a /etc/avahi/hosts
+   sudo systemctl restart avahi-daemon
+   ```
+   Adicione a mesma linha ao `/etc/hosts` da própria VM para resolução local garantida.
+2. **Sidecar mDNS (Mac/Windows sem avahi no guest):** o serviço `mdns` do `docker-compose.yml` anuncia `openjob.local`. Configure o IP da LAN no `.env` (copie `.env.example`). Mantenha **um único** respondente mDNS por rede.
+3. **⚠️ Android/Chrome não resolve `.local`** (limitação do Chromium, não é problema de configuração). No Android use o domínio mágico — resolve via DNS público para o IP embutido no nome, funciona em qualquer aparelho:
+   ```text
+   http://192.168.15.X.nip.io:8080
+   ```
 
 > Se nenhum caminho funcionar na sua rede, `http://<ip-local>:8080` sempre funciona.
 

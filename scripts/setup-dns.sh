@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
 # openJob — local DNS setup (Checkpoint 1).
 #
-# Two supported paths (docs/context/spec.md §5):
-#   1. mDNS sidecar in docker-compose.yml (default; native on Linux) —
-#      no host configuration needed beyond Docker.
-#   2. dnsmasq on the host (fallback for Mac/Windows or stricter networks) —
-#      answers "openjob.local" with your LAN IP on your router's DHCP domain.
+# Tested paths (docs/adr/0001-mdns-local-hostname.md):
+#   1. avahi  — native Linux mDNS alias via /etc/avahi/hosts (RECOMMENDED on
+#               Linux hosts/VMs; machine hostname stays untouched)
+#   2. mdns   — docker-compose sidecar (Mac/Windows guests without avahi)
+#   3. dnsmasq — host fallback (advanced)
+#   Android/Chrome cannot resolve .local (Chromium limitation) — use
+#   http://<vm-ip>.nip.io:<port> there.
 #
 # Usage:
-#   ./scripts/setup-dns.sh            # check the mDNS path
+#   ./scripts/setup-dns.sh            # status of every path
+#   ./scripts/setup-dns.sh avahi      # configure native avahi alias (Linux)
+#   ./scripts/setup-dns.sh mdns       # sidecar checklist (.env + compose)
 #   ./scripts/setup-dns.sh dnsmasq    # print dnsmasq host configuration
 set -euo pipefail
 
-HOSTNAME="${OPENJOB_HOSTNAME:-openjob.local}"
+HOSTNAME_ALIAS="${OPENJOB_HOSTNAME:-openjob.local}"
 IP="${OPENJOB_LAN_IP:-}"
 
 detect_lan_ip() {
@@ -24,7 +28,7 @@ detect_lan_ip() {
 }
 
 check_mdns() {
-  echo "== mDNS path (docker-compose sidecar) =="
+  echo "== mDNS sidecar path (docker-compose) =="
   if ! command -v docker >/dev/null 2>&1; then
     echo "docker not found in PATH — install Docker first."
     exit 1
@@ -33,16 +37,40 @@ check_mdns() {
   echo "LAN IP detected: ${IP:-<unknown>}"
   echo
   echo "1) Create a .env file next to docker-compose.yml with:"
-  echo "     OPENJOB_HOSTNAME=${HOSTNAME}"
+  echo "     OPENJOB_HOSTNAME=${HOSTNAME_ALIAS}"
   echo "     OPENJOB_LAN_IP=${IP:-<your-lan-ip>}"
   echo
-  echo "2) Bring the stack up:    docker compose up -d"
-  echo "3) From the phone, open:  http://${HOSTNAME}:8080"
+  echo "2) Bring the stack up:    sudo docker compose up -d --force-recreate"
+  echo "3) From the phone, open:  http://${HOSTNAME_ALIAS}:8080"
+  echo "   (Android/Chrome: use http://${IP:-<vm-ip>}.nip.io:8080 instead)"
   echo
-  if command -v avahi-resolve >/dev/null 2>&1; then
-    echo "Quick self-test from the host:"
-    echo "     avahi-resolve -n ${HOSTNAME}"
+  echo "Note: on Linux guests with avahi-daemon, prefer './scripts/setup-dns.sh avahi'"
+  echo "and keep only ONE mDNS responder per network."
+}
+
+setup_avahi() {
+  echo "== native avahi alias path (Linux) =="
+  if ! command -v avahi-daemon >/dev/null 2>&1 && [ ! -x /usr/sbin/avahi-daemon ]; then
+    echo "avahi-daemon not found — install with: sudo apt install avahi-daemon"
+    exit 1
   fi
+  [ -z "$IP" ] && IP="$(detect_lan_ip || true)"
+  [ -z "$IP" ] && { echo "could not detect LAN IP; export OPENJOB_LAN_IP first."; exit 1; }
+
+  echo "Publishing ${HOSTNAME_ALIAS} -> ${IP} via /etc/avahi/hosts"
+  echo
+  echo "Run these commands (sudo needed):"
+  echo
+  echo "  echo '${IP} ${HOSTNAME_ALIAS}' | sudo tee -a /etc/avahi/hosts"
+  echo "  echo '${IP} ${HOSTNAME_ALIAS}' | sudo tee -a /etc/hosts   # local resolution"
+  echo "  sudo systemctl restart avahi-daemon"
+  echo
+  echo "Then validate:"
+  echo "  getent hosts ${HOSTNAME_ALIAS}"
+  echo "  curl -v http://${HOSTNAME_ALIAS}:8080/api/health"
+  echo
+  echo "From other devices: http://${HOSTNAME_ALIAS}:8080"
+  echo "From Android/Chrome: http://${IP}.nip.io:8080"
 }
 
 print_dnsmasq() {
@@ -52,7 +80,7 @@ print_dnsmasq() {
   echo
   cat <<CONF
   # openJob local record
-  host-record=${HOSTNAME},${IP:-<your-lan-ip>}
+  host-record=${HOSTNAME_ALIAS},${IP:-<your-lan-ip>}
   cache-size=1000
 CONF
   echo
@@ -62,8 +90,41 @@ CONF
   echo "already owns .local there, which is why the mDNS sidecar is preferred."
 }
 
-case "${1:-mdns}" in
+status_all() {
+  echo "== openJob local DNS status =="
+  [ -z "$IP" ] && IP="$(detect_lan_ip || true)"
+  echo "LAN IP: ${IP:-<unknown>}"
+  echo
+  if command -v avahi-daemon >/dev/null 2>&1 || [ -x /usr/sbin/avahi-daemon ]; then
+    echo "[avahi]     installed"
+    if [ -f /etc/avahi/hosts ] && grep -q "[[:space:]]${HOSTNAME_ALIAS}\$" /etc/avahi/hosts 2>/dev/null; then
+      echo "[avahi]     alias configured in /etc/avahi/hosts"
+    else
+      echo "[avahi]     alias NOT configured (run: $0 avahi)"
+    fi
+  else
+    echo "[avahi]     not installed"
+  fi
+  if grep -q "[[:space:]]${HOSTNAME_ALIAS}\$" /etc/hosts 2>/dev/null; then
+    echo "[/etc/hosts] alias present (local resolution guaranteed)"
+  else
+    echo "[/etc/hosts] alias absent (optional: see './$0 avahi')"
+  fi
+  if command -v docker >/dev/null 2>&1 && sudo -n docker compose ps --status running 2>/dev/null | grep -q openjob-mdns; then
+    echo "[sidecar]   openjob-mdns running"
+  else
+    echo "[sidecar]   not running (optional on Linux: native avahi covers it)"
+  fi
+  echo
+  echo "Test URLs:"
+  echo "  mDNS devices:   http://${HOSTNAME_ALIAS}:8080"
+  echo "  Android/Chrome: http://${IP}.nip.io:8080"
+}
+
+case "${1:-status}" in
+  status)  status_all ;;
+  avahi)   setup_avahi ;;
   mdns)    check_mdns ;;
   dnsmasq) print_dnsmasq ;;
-  *) echo "usage: $0 [mdns|dnsmasq]"; exit 2 ;;
+  *) echo "usage: $0 [status|avahi|mdns|dnsmasq]"; exit 2 ;;
 esac

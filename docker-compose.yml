@@ -14,8 +14,11 @@ services:
     restart: unless-stopped
 
   # Sidecar: announces openjob.local on the LAN via mDNS.
-  # Works natively on Linux; on macOS/Windows the host's Bonjour usually
-  # resolves .local already — see README "Local DNS" section.
+  # Use on Mac/Windows guests (no native avahi). On Linux guests the PREFERRED
+  # path is the native avahi alias (see scripts/setup-dns.sh avahi and
+  # docs/adr/0001) — keep only ONE mDNS responder per network.
+  # Android/Chrome cannot resolve .local (Chromium limitation): use
+  # http://<vm-ip>.nip.io:8080 there.
   # Set OPENJOB_LAN_IP in a .env file to your notebook's LAN IP:
   #   echo "OPENJOB_LAN_IP=192.168.1.10" > .env
   mdns:
