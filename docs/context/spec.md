@@ -24,7 +24,7 @@ O openJob é um **copiloto**, não um "spray and pray": ele busca vagas, adapta 
 | Módulo Go | `github.com/maicondmenezes/openjob` |
 | Binário | `openjob` |
 | Container / serviço Compose | `openjob` |
-| Hostname local (DNS) | **`openjob.local`** (configurável via `OPENJOB_HOSTNAME`) |
+| Hostname local (DNS) | **`openjob.copilot`** (configurável via `OPENJOB_HOSTNAME`) |
 | Banco SQLite | `/data/openjob.db` |
 | Arquivo de chave local | `/data/.master.key` (chmod `0600`) |
 | Variáveis de ambiente | prefixo `OPENJOB_` (ex.: `OPENJOB_PORT`, `OPENJOB_DB_PATH`, `OPENJOB_HOSTNAME`) |
@@ -75,7 +75,7 @@ O openJob é um **copiloto**, não um "spray and pray": ele busca vagas, adapta 
 
 - **Local-first:** o app roda inteiramente na máquina do usuário; a nuvem não é necessária no MVP. SQLite é o banco primário.
 - **Docker:** um único container (ou Docker Compose) expõe a porta `8080` na rede local.
-- **Acesso via URL:** o openJob deve ser acessível por hostname local **`openjob.local`**, não apenas por IP.
+- **Acesso via URL:** o openJob deve ser acessível por hostname local **`openjob.copilot`**, não apenas por IP.
 - **Segurança (modo pessoal):** chaves BYOK nunca são expostas no frontend; cifradas em repouso no SQLite com AES-GCM e chave local em arquivo `0600`. **Não há senha mestra** no MVP. Documentar claramente no README que o arquivo `data/.master.key` é o segredo do cofre.
 - **Multi-tenancy:** **sem `tenant_id` no MVP**. Adicionar depois via migrations é trivial; a interface `Repository` e a estrutura de pastas já preparam o terreno.
 - **Portabilidade para SaaS:** a lógica de negócio fica no backend Go; a UI é stateless; o schema do SQLite deve ser compatível com migração para PostgreSQL (usar `TEXT`/`INTEGER`/`DATETIME` no SQLite, mapear para `VARCHAR`/`BIGSERIAL`/`TIMESTAMPTZ` no Postgres via interface; encapsular `AUTOINCREMENT` no store).
@@ -93,7 +93,7 @@ O openJob é um **copiloto**, não um "spray and pray": ele busca vagas, adapta 
 | **Banco local** | SQLite (`modernc.org/sqlite` ou `mattn/go-sqlite3`) | Persistência em volume Docker `./data` → `openjob.db`. Migrations versionadas embutidas (`golang-migrate` ou SQL puro no embed). |
 | **IA BYOK** | Cliente fino sobre API OpenAI-compatible | `github.com/sashabaranov/go-openai` ou `net/http` puro. Configurável via `base_url` + `api_key` + `model`. **Substitui `llmux`/`any-llm-go`** — reduz dependências e cobre OpenAI, Groq, Ollama, Together, Fireworks e Anthropic via endpoint compatível. |
 | **Scraper** | `github.com/gocolly/colly` ou `net/http` + `goquery` | Roda sob demanda ou via `time.Ticker` a cada 6h (desabilitado por padrão). |
-| **DNS local** | mDNS (`.local`) via container `skhmt/mdns` **ou** dnsmasq no host | `skhmt/mdns` com `network_mode: host` e `HOST=openjob.local`. No Linux funciona nativo; no Mac/Windows, o Bonjour do host resolve `openjob.local` automaticamente. Documentar os dois caminhos. |
+| **DNS local** | mDNS (`.local`) via container `skhmt/mdns` **ou** dnsmasq no host | `skhmt/mdns` com `network_mode: host` e `HOST=openjob.copilot`. No Linux funciona nativo; no Mac/Windows, o Bonjour do host resolve `openjob.copilot` automaticamente. Documentar os dois caminhos. |
 | **Criptografia BYOK** | AES-GCM + chave local em arquivo `0600` | Gerar `data/.master.key` na primeira execução. Sem PBKDF2 no MVP. |
 | **Notificações** | Telegram Bot API | Criar bot com `@BotFather`; enviar via `POST https://api.telegram.org/bot<TOKEN>/sendMessage`. |
 | **Container** | Docker multi-stage | Estágio Node para build da SPA; estágio Go para binário estático com assets embutidos. |
@@ -128,7 +128,7 @@ openjob/
 ```
 
 **Fluxo de dados:**
-1. SPA (celular/navegador) → `http://openjob.local:8080` → backend Go.
+1. SPA (celular/navegador) → `http://openjob.copilot:8080` → backend Go.
 2. Backend lê/escreve no SQLite, chama o provedor de IA com a chave BYOK e dispara notificações via Telegram.
 3. Nenhum dado sai da rede local, exceto as chamadas explícitas à API de IA e ao Telegram.
 
@@ -209,10 +209,10 @@ Cada checkpoint deve ser **demonstrável e testável** antes de avançar. Desenv
 **Entregáveis:**
 - Backend Go + `chi` servindo "Hello World" via `//go:embed`.
 - `Dockerfile` multi-stage e `docker-compose.yml` com porta `8080`.
-- Sidecar mDNS para `openjob.local`.
+- Sidecar mDNS para `openjob.copilot`.
 - Acesso pelo celular confirmado.
 
-**Critério de verificação:** abrir `http://openjob.local:8080` no celular na mesma rede Wi-Fi.
+**Critério de verificação:** abrir `http://openjob.copilot:8080` no celular na mesma rede Wi-Fi.
 
 ---
 
@@ -367,7 +367,7 @@ Mesmo sendo uso pessoal, **não corte estas coisas** — o custo de adicionar de
 ## 12. Entregáveis Finais ♻️
 
 - Código-fonte completo do **openJob** em monorepo (`backend/`, `frontend/`, `Dockerfile`, `docker-compose.yml`).
-- Documentação de instalação e uso (`README.md` em inglês e português) com instruções para `openjob.local` e para o arquivo `data/.master.key`.
+- Documentação de instalação e uso (`README.md` em inglês e português) com instruções para `openjob.copilot` e para o arquivo `data/.master.key`.
 - Script de setup do DNS local (mDNS ou dnsmasq) com instruções para o usuário.
 - Suíte de testes automatizados para os checkpoints 1–7 (foco em criptografia BYOK, parsing de JD, deduplicação de vagas).
 - ADRs curtos documentando: criptografia BYOK (chave local vs. senha mestra), ausência de `tenant_id`, escolha de mDNS, cliente LLM OpenAI-compatible.
@@ -384,7 +384,7 @@ Mesmo sendo uso pessoal, **não corte estas coisas** — o custo de adicionar de
 4. **Mantenha a portabilidade:** evite acoplamento a um provedor de IA ou a um banco específico; use interfaces (`LLMClient`, `Repository`).
 5. **Documente decisões de arquitetura** (ADRs curtos) especialmente para BYOK, DNS local, ausência de multi-tenancy e escolha do cliente LLM.
 6. **Valide no celular real** a cada checkpoint que envolva UI ou acesso via rede.
-7. **Mantenha a identidade do projeto:** todos os artefatos (binário, container, hostname `openjob.local`, banco `openjob.db`, variáveis `OPENJOB_*`) devem usar o nome **openJob**.
+7. **Mantenha a identidade do projeto:** todos os artefatos (binário, container, hostname `openjob.copilot`, banco `openjob.db`, variáveis `OPENJOB_*`) devem usar o nome **openJob**.
 8. **Respeite a sequência de valor:** entregue o Checkpoint 5 (entrada manual + scoring) **antes** do Checkpoint 6 (descoberta automática). O usuário deve poder usar o app de verdade o mais cedo possível.
 9. **Não productize antes do Checkpoint 8:** qualquer feature de multi-tenancy, licenciamento, UI de plataformas ou ATS assistido em escala **só** entra após a validação pessoal. Se a tentação aparecer, registre como ADR "deferred post-validation".
 

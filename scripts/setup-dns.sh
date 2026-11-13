@@ -16,7 +16,7 @@
 #   ./scripts/setup-dns.sh dnsmasq    # print dnsmasq host configuration
 set -euo pipefail
 
-HOSTNAME_ALIAS="${OPENJOB_HOSTNAME:-openjob.local}"
+HOSTNAME_ALIAS="${OPENJOB_HOSTNAME:-openjob.copilot}"
 IP="${OPENJOB_LAN_IP:-}"
 
 detect_lan_ip() {

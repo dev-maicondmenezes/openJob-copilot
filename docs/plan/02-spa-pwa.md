@@ -33,7 +33,7 @@ SvelteKit com `adapter-static` (modo SPA), build embutido no binário Go via `//
 
 - No celular: navegar entre as 5 rotas, **recarregar em `/jobs`** (deep link) sem 404.
 - **Instalar a PWA na tela inicial** do celular e abrir offline (app shell carrega).
-- Mesma origem: SPA e API em `http://openjob.local:8080` — **sem CORS** (spec §3.5).
+- Mesma origem: SPA e API em `http://openjob.copilot:8080` — **sem CORS** (spec §3.5).
 
 ## Registrar
 

@@ -14,8 +14,8 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.DBPath != "/data/openjob.db" {
 		t.Errorf("DBPath = %q, want /data/openjob.db", cfg.DBPath)
 	}
-	if cfg.Hostname != "openjob.local" {
-		t.Errorf("Hostname = %q, want openjob.local", cfg.Hostname)
+	if cfg.Hostname != "openjob.copilot" {
+		t.Errorf("Hostname = %q, want openjob.copilot", cfg.Hostname)
 	}
 }
 

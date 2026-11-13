@@ -9,6 +9,13 @@ data/
 bin/
 node_modules/
 dist-tmp/
+backend/tmp/
+frontend/build/
+frontend/.svelte-kit/
+# backend/web/dist é gerado pelo build da SPA (npm run build no frontend);
+# o .gitkeep permanece para o //go:embed compilar antes do primeiro build.
+backend/web/dist/*
+!backend/web/dist/.gitkeep
 
 # Editors / OS
 .idea/

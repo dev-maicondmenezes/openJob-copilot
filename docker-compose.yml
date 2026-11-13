@@ -8,12 +8,12 @@ services:
     environment:
       OPENJOB_PORT: "8080"
       OPENJOB_DB_PATH: /data/openjob.db
-      OPENJOB_HOSTNAME: openjob.local
+      OPENJOB_HOSTNAME: openjob.copilot
     volumes:
       - ./data:/data
     restart: unless-stopped
 
-  # Sidecar: announces openjob.local on the LAN via mDNS.
+  # Sidecar: announces openjob.copilot on the LAN via mDNS.
   # Use on Mac/Windows guests (no native avahi). On Linux guests the PREFERRED
   # path is the native avahi alias (see scripts/setup-dns.sh avahi and
   # docs/adr/0001) — keep only ONE mDNS responder per network.
@@ -26,6 +26,6 @@ services:
     container_name: openjob-mdns
     network_mode: host
     environment:
-      HOST: ${OPENJOB_HOSTNAME:-openjob.local}
+      HOST: ${OPENJOB_HOSTNAME:-openjob.copilot}
       IP: ${OPENJOB_LAN_IP:-}
     restart: unless-stopped

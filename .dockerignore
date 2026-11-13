@@ -1,10 +1,13 @@
-# Contexto de build mínimo
+# Contexto de build mínimo — o estágio Node do Dockerfile compila a SPA a
+# partir do código-fonte; node_modules/.svelte-kit/build são gerados no container.
 data/
 bin/
 docs/
-frontend/
 scripts/
 .git/
 .env
 *.md
-!backend/web/dist/**
+frontend/node_modules
+frontend/build
+frontend/.svelte-kit
+backend/web/dist

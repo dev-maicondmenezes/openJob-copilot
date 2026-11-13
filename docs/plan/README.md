@@ -39,5 +39,5 @@ Conforme spec §10, preservar em todos os checkpoints:
 ## Convenções de nomenclatura (spec §2)
 
 - Módulo Go: `github.com/maicondmenezes/openjob` · binário: `openjob` · container: `openjob`
-- Hostname: `openjob.local` (config. via `OPENJOB_HOSTNAME`) · banco: `/data/openjob.db`
+- Hostname: `openjob.copilot` (config. via `OPENJOB_HOSTNAME`) · banco: `/data/openjob.db`
 - Chave local: `/data/.master.key` (`0600`) · env: prefixo `OPENJOB_`

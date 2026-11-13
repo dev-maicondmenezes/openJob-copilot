@@ -12,7 +12,7 @@ type Config struct {
 	// "/data/openjob.db" inside the container volume).
 	DBPath string
 	// Hostname is the local DNS name announced via mDNS (OPENJOB_HOSTNAME,
-	// default "openjob.local").
+	// default "openjob.copilot").
 	Hostname string
 }
 
@@ -21,7 +21,7 @@ func Load() Config {
 	return Config{
 		Port:     envOr("OPENJOB_PORT", "8080"),
 		DBPath:   envOr("OPENJOB_DB_PATH", "/data/openjob.db"),
-		Hostname: envOr("OPENJOB_HOSTNAME", "openjob.local"),
+		Hostname: envOr("OPENJOB_HOSTNAME", "openjob.copilot"),
 	}
 }
 

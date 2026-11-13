@@ -4,7 +4,7 @@
 
 ## Objetivo
 
-Backend Go + `chi` servindo "Hello World" via `//go:embed`, containerizado em Docker multi-stage, acessível pelo **celular** via `http://openjob.local:8080` na mesma rede Wi-Fi.
+Backend Go + `chi` servindo "Hello World" via `//go:embed`, containerizado em Docker multi-stage, acessível pelo **celular** via `http://openjob.copilot:8080` na mesma rede Wi-Fi.
 
 ## Pré-requisitos
 
@@ -23,27 +23,27 @@ Backend Go + `chi` servindo "Hello World" via `//go:embed`, containerizado em Do
 2. **Servidor HTTP**:
    - `go.mod` com `module github.com/maicondmenezes/openjob`.
    - Router `chi` com rota `GET /api/health` → `{"status":"ok"}` e `GET /` servindo placeholder via `//go:embed` (inicialmente um `index.html` mínimo em `backend/web/dist/`).
-   - Config via env: `OPENJOB_PORT` (default `8080`), `OPENJOB_DB_PATH` (default `/data/openjob.db`), `OPENJOB_HOSTNAME` (default `openjob.local`).
+   - Config via env: `OPENJOB_PORT` (default `8080`), `OPENJOB_DB_PATH` (default `/data/openjob.db`), `OPENJOB_HOSTNAME` (default `openjob.copilot`).
 3. **Dockerfile multi-stage**:
    - Estágio Node: build da SPA (placeholder) → `backend/web/dist`.
    - Estágio Go: binário estático (CGO desabilitado) com assets embutidos.
    - Runtime mínimo (`gcr.io/distroless/static` ou `alpine`), porta `8080`, volume `./data:/data`.
 4. **`docker-compose.yml`**:
-   - Serviço `openjob` + sidecar `skhmt/mdns` com `network_mode: host` e `HOST=openjob.local`.
+   - Serviço `openjob` + sidecar `skhmt/mdns` com `network_mode: host` e `HOST=openjob.copilot`.
    - Volume `./data` persistente.
 5. **Script de setup DNS local** (`scripts/setup-dns.sh`): caminho mDNS (Linux nativo) e alternativa dnsmasq no host; documentar os dois no README (spec §12).
-6. **README inicial** (EN/PT): como subir, como acessar `openjob.local`, aviso sobre `data/.master.key` (papel documentado desde já, spec §3.2/§4).
+6. **README inicial** (EN/PT): como subir, como acessar `openjob.copilot`, aviso sobre `data/.master.key` (papel documentado desde já, spec §3.2/§4).
 
 ## Critério de verificação
 
 - `docker compose up` sobe o container sem erro.
 - `curl http://localhost:8080/api/health` → `{"status":"ok"}`.
-- **Abrir `http://openjob.local:8080` no celular na mesma rede Wi-Fi** e ver a página.
+- **Abrir `http://openjob.copilot:8080` no celular na mesma rede Wi-Fi** e ver a página.
 - Fallback documentado: acessar por IP local se mDNS falhar no Mac/Windows.
 
 ## Registrar
 
-- ADR: **mDNS mantido** (por que `openjob.local` e não IP — uso no sofá pelo celular é caso de uso central).
+- ADR: **mDNS mantido** (por que `openjob.copilot` e não IP — uso no sofá pelo celular é caso de uso central).
 - Decisão sobre `modernc.org/sqlite` vs `mattn/go-sqlite3` (afeta CGO/estático) — antecipar aqui para não travar o CP3.
 
 ## Fora de escopo

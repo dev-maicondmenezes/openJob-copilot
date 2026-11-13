@@ -1,0 +1,25 @@
+# Air — hot reload do servidor Go (make dev-api).
+# Rebuilda e reinicia o binário a cada mudança em .go. O dist/ embutido não é
+# assistido: durante o dev a SPA roda no Vite (HMR); para testar assets
+# embutidos de verdade, use `make build && make run`.
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  bin = "tmp/openjob-dev"
+  cmd = "go build -o tmp/openjob-dev ./cmd/openjob"
+  delay = 500
+  exclude_dir = ["tmp", "web", "scripts"]
+  exclude_file = []
+  exclude_regex = ["_test\\.go"]
+  include_ext = ["go"]
+  kill_delay = "2s"
+  rerun = false
+  send_interrupt = true
+  stop_on_error = true
+
+[log]
+  time = false
+
+[misc]
+  clean_on_exit = true

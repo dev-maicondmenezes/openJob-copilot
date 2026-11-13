@@ -56,6 +56,16 @@ func spaHandler(logger *slog.Logger) http.HandlerFunc {
 			http.Error(w, "spa assets unavailable", http.StatusServiceUnavailable)
 			return
 		}
+		// Content-types que o mime padrão do Go não resolve.
+		if r.URL.Path == "/manifest.webmanifest" {
+			w.Header().Set("Content-Type", "application/manifest+json; charset=utf-8")
+		}
+		// Assets imutáveis do Vite (hash no nome): cache agressivo.
+		if strings.HasPrefix(r.URL.Path, "/_app/immutable/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			fileServer.ServeHTTP(w, r)
+			return
+		}
 		path := strings.TrimPrefix(r.URL.Path, "/")
 		if path == "" {
 			path = "index.html"
@@ -65,13 +75,15 @@ func spaHandler(logger *slog.Logger) http.HandlerFunc {
 			fileServer.ServeHTTP(w, r)
 			return
 		}
-		// SPA fallback: serve index.html for unknown paths.
+		// SPA fallback: serve index.html for unknown paths (deep links).
+		// no-cache: o shell precisa revalidar para pegar novos deploys.
 		data, err := fs.ReadFile(dist, "index.html")
 		if err != nil {
 			http.Error(w, "index.html missing", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
 		_, _ = w.Write(data)
 	}
 }
