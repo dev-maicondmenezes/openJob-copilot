@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io/fs"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/maicondmenezes/openjob/internal/config"
+	"github.com/maicondmenezes/openjob/internal/discovery"
 	"github.com/maicondmenezes/openjob/internal/llm"
 	"github.com/maicondmenezes/openjob/internal/store"
 	"github.com/maicondmenezes/openjob/web"
@@ -25,6 +27,11 @@ import (
 //     (e.g. /jobs, /settings after Checkpoint 2) survive a reload.
 func New(cfg config.Config, logger *slog.Logger, repo store.Repository, masterKey []byte, llmClient llm.Client) http.Handler {
 	r := chi.NewRouter()
+
+	orch := discovery.NewOrchestrator(repo, nil, masterKey, llmClient, logger)
+	if discCfg, err := orch.LoadConfig(context.Background()); err == nil {
+		orch.ConfigureTicker(discCfg.DiscoveryInterval)
+	}
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", handleHealth(cfg))
@@ -45,6 +52,17 @@ func New(cfg config.Config, logger *slog.Logger, repo store.Repository, masterKe
 			masterKey: masterKey,
 			llm:       llmClient,
 			logger:    logger,
+		})
+		registerSources(r, &sourcesAPI{
+			repo:         repo,
+			orchestrator: orch,
+			masterKey:    masterKey,
+			logger:       logger,
+		})
+		registerDiscovery(r, &discoveryAPI{
+			orchestrator: orch,
+			repo:         repo,
+			logger:       logger,
 		})
 		r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})

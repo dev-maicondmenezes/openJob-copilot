@@ -220,14 +220,18 @@ func (j *jobsAPI) listJobs(w http.ResponseWriter, r *http.Request) {
 
 func jobPayload(job store.Job) map[string]any {
 	payload := map[string]any{
-		"id":           job.ID,
-		"title":        job.Title,
-		"company":      job.Company,
-		"url":          job.URL,
-		"source":       job.Source,
-		"score_reason": job.ScoreReason,
-		"status":       job.Status,
-		"created_at":   job.CreatedAt,
+		"id":                   job.ID,
+		"title":                job.Title,
+		"company":              job.Company,
+		"url":                  job.URL,
+		"description":          job.Description,
+		"source":               job.Source,
+		"score_reason":         job.ScoreReason,
+		"status":               job.Status,
+		"external_id":          job.ExternalID,
+		"matched_keywords":     job.MatchedKeywords,
+		"matched_resume_terms": job.MatchedResumeTerms,
+		"created_at":           job.CreatedAt,
 	}
 	if job.ScoreFit != nil {
 		payload["score_fit"] = *job.ScoreFit

@@ -1,0 +1,351 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/maicondmenezes/openjob/internal/discovery"
+	"github.com/maicondmenezes/openjob/internal/store"
+)
+
+type sourcesAPI struct {
+	repo         store.Repository
+	orchestrator *discovery.Orchestrator
+	masterKey    []byte
+	logger       *slog.Logger
+}
+
+func registerSources(r chi.Router, s *sourcesAPI) {
+	r.Get("/sources", s.listSources)
+	r.Get("/sources/adapters", s.listAdapters)
+	r.Post("/sources", s.createSource)
+	r.Patch("/sources/{id}", s.updateSource)
+	r.Delete("/sources/{id}", s.deleteSource)
+	r.Post("/sources/{id}/test", s.testSource)
+}
+
+type sourceResponse struct {
+	ID           string                 `json:"id"`
+	Name         string                 `json:"name"`
+	Adapter      string                 `json:"adapter"`
+	Enabled      bool                   `json:"enabled"`
+	Priority     int                    `json:"priority"`
+	AuthType     string                 `json:"auth_type"`
+	HasAPIKey    bool                   `json:"has_api_key"`
+	Capabilities discovery.Capabilities `json:"capabilities"`
+	CreatedAt    string                 `json:"created_at"`
+	UpdatedAt    string                 `json:"updated_at"`
+}
+
+func (s *sourcesAPI) toSourceResponse(src store.Source) sourceResponse {
+	var caps discovery.Capabilities
+	if err := json.Unmarshal([]byte(src.Capabilities), &caps); err != nil {
+		if adapter, ok := s.orchestrator.Registry().Get(src.Adapter); ok {
+			caps = adapter.DefaultCapabilities()
+		}
+	}
+	return sourceResponse{
+		ID:           src.ID,
+		Name:         src.Name,
+		Adapter:      src.Adapter,
+		Enabled:      src.Enabled,
+		Priority:     src.Priority,
+		AuthType:     src.AuthType,
+		HasAPIKey:    src.AuthType == "api_key" && src.AuthConfig != "",
+		Capabilities: caps,
+		CreatedAt:    src.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:    src.UpdatedAt.Format(time.RFC3339),
+	}
+}
+
+func (s *sourcesAPI) listSources(w http.ResponseWriter, r *http.Request) {
+	sources, err := s.repo.ListSources(r.Context())
+	if err != nil {
+		s.logger.Error("list sources failed", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao listar fontes"})
+		return
+	}
+
+	res := make([]sourceResponse, 0, len(sources))
+	for _, src := range sources {
+		res = append(res, s.toSourceResponse(src))
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *sourcesAPI) listAdapters(w http.ResponseWriter, r *http.Request) {
+	adapters := s.orchestrator.Registry().List()
+	writeJSON(w, http.StatusOK, adapters)
+}
+
+type createSourceRequest struct {
+	ID           string                  `json:"id"`
+	Name         string                  `json:"name"`
+	Adapter      string                  `json:"adapter"`
+	Enabled      *bool                   `json:"enabled"`
+	Priority     *int                    `json:"priority"`
+	AuthType     string                  `json:"auth_type"`
+	APIKey       string                  `json:"api_key"`
+	Capabilities *discovery.Capabilities `json:"capabilities"`
+}
+
+func (s *sourcesAPI) createSource(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxSettingsBody)
+	var req createSourceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSON inválido"})
+		return
+	}
+
+	req.ID = strings.ToLower(strings.TrimSpace(req.ID))
+	req.Name = strings.TrimSpace(req.Name)
+	req.Adapter = strings.ToLower(strings.TrimSpace(req.Adapter))
+	req.AuthType = strings.ToLower(strings.TrimSpace(req.AuthType))
+	if req.AuthType == "" {
+		req.AuthType = "none"
+	}
+
+	if req.ID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id é obrigatório"})
+		return
+	}
+	if req.Name == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "nome é obrigatório"})
+		return
+	}
+	if err := s.orchestrator.Registry().Validate(req.Adapter); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	adapter, _ := s.orchestrator.Registry().Get(req.Adapter)
+	caps := adapter.DefaultCapabilities()
+	if req.Capabilities != nil {
+		caps = *req.Capabilities
+	}
+	capsBytes, _ := json.Marshal(caps)
+
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+	priority := 100
+	if req.Priority != nil {
+		priority = *req.Priority
+	}
+
+	var authConfig string
+	if req.AuthType == "api_key" {
+		req.APIKey = strings.TrimSpace(req.APIKey)
+		if req.APIKey != "" {
+			sealed, err := store.EncryptString(s.masterKey, req.APIKey)
+			if err != nil {
+				s.logger.Error("encrypt source api key failed", "err", err)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao cifrar credencial"})
+				return
+			}
+			authConfig = sealed
+		}
+	}
+
+	src := store.Source{
+		ID:           req.ID,
+		Name:         req.Name,
+		Adapter:      req.Adapter,
+		Enabled:      enabled,
+		Priority:     priority,
+		AuthType:     req.AuthType,
+		AuthConfig:   authConfig,
+		Capabilities: string(capsBytes),
+	}
+
+	if err := s.repo.CreateSource(r.Context(), src); err != nil {
+		s.logger.Error("create source failed", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao criar fonte"})
+		return
+	}
+
+	saved, err := s.repo.GetSource(r.Context(), req.ID)
+	if err != nil {
+		writeJSON(w, http.StatusCreated, s.toSourceResponse(src))
+		return
+	}
+	writeJSON(w, http.StatusCreated, s.toSourceResponse(saved))
+}
+
+type updateSourceRequest struct {
+	Name         *string                 `json:"name"`
+	Adapter      *string                 `json:"adapter"`
+	Enabled      *bool                   `json:"enabled"`
+	Priority     *int                    `json:"priority"`
+	AuthType     *string                 `json:"auth_type"`
+	APIKey       *string                 `json:"api_key"`
+	Capabilities *discovery.Capabilities `json:"capabilities"`
+}
+
+func (s *sourcesAPI) updateSource(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	src, err := s.repo.GetSource(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "fonte não encontrada"})
+		return
+	}
+	if err != nil {
+		s.logger.Error("get source failed", "id", id, "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao buscar fonte"})
+		return
+	}
+
+	var req updateSourceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSON inválido"})
+		return
+	}
+
+	if req.Name != nil {
+		name := strings.TrimSpace(*req.Name)
+		if name != "" {
+			src.Name = name
+		}
+	}
+	if req.Adapter != nil {
+		adapterSlug := strings.ToLower(strings.TrimSpace(*req.Adapter))
+		if err := s.orchestrator.Registry().Validate(adapterSlug); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		src.Adapter = adapterSlug
+	}
+	if req.Enabled != nil {
+		src.Enabled = *req.Enabled
+	}
+	if req.Priority != nil {
+		src.Priority = *req.Priority
+	}
+	if req.AuthType != nil {
+		src.AuthType = strings.ToLower(strings.TrimSpace(*req.AuthType))
+	}
+	if req.APIKey != nil {
+		apiKey := strings.TrimSpace(*req.APIKey)
+		if apiKey != "" {
+			sealed, err := store.EncryptString(s.masterKey, apiKey)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao cifrar credencial"})
+				return
+			}
+			src.AuthConfig = sealed
+		} else if src.AuthType == "none" {
+			src.AuthConfig = ""
+		}
+	}
+	if req.Capabilities != nil {
+		capsBytes, _ := json.Marshal(*req.Capabilities)
+		src.Capabilities = string(capsBytes)
+	}
+
+	if err := s.repo.UpdateSource(r.Context(), src); err != nil {
+		s.logger.Error("update source failed", "id", id, "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao atualizar fonte"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, s.toSourceResponse(src))
+}
+
+func (s *sourcesAPI) deleteSource(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := s.repo.DeleteSource(r.Context(), id); errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "fonte não encontrada"})
+		return
+	} else if err != nil {
+		s.logger.Error("delete source failed", "id", id, "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao excluir fonte"})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *sourcesAPI) testSource(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	src, err := s.repo.GetSource(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "fonte não encontrada"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao buscar fonte"})
+		return
+	}
+
+	adapter, ok := s.orchestrator.Registry().Get(src.Adapter)
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"ok":    false,
+			"error": fmt.Sprintf("adapter %q não está registrado no sistema", src.Adapter),
+		})
+		return
+	}
+
+	apiKey := ""
+	if src.AuthType == "api_key" && src.AuthConfig != "" {
+		if decrypted, err := store.DecryptString(s.masterKey, src.AuthConfig); err == nil {
+			apiKey = decrypted
+		}
+	}
+
+	var caps discovery.Capabilities
+	if err := json.Unmarshal([]byte(src.Capabilities), &caps); err != nil {
+		caps = adapter.DefaultCapabilities()
+	}
+	caps.MaxResultsPerRun = 1 // fetch minimal 1 item for testing
+
+	srcCfg := discovery.SourceConfig{
+		ID:           src.ID,
+		Name:         src.Name,
+		Adapter:      src.Adapter,
+		Enabled:      src.Enabled,
+		Priority:     src.Priority,
+		AuthType:     src.AuthType,
+		APIKey:       apiKey,
+		Capabilities: caps,
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	jobs, err := adapter.Fetch(ctx, srcCfg, nil)
+	latency := time.Since(start).Milliseconds()
+
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":         false,
+			"latency_ms": latency,
+			"error":      err.Error(),
+		})
+		return
+	}
+
+	var sample any
+	if len(jobs) > 0 {
+		sample = map[string]string{
+			"title":   jobs[0].Title,
+			"company": jobs[0].Company,
+			"url":     jobs[0].URL,
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":         true,
+		"latency_ms": latency,
+		"sample":     sample,
+		"count":      len(jobs),
+	})
+}

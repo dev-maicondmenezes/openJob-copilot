@@ -21,18 +21,45 @@ type Curriculum struct {
 	UploadedAt     time.Time
 }
 
-// Job is a vacancy discovered by a scraper or pasted manually (spec §7).
+// Job is a vacancy discovered by an automated source or pasted manually (spec §7).
 type Job struct {
-	ID          int64
-	Title       string
-	Company     string
-	URL         string // unique; empty when no link is available
-	Description string
-	Source      string // 'remotive' | 'wwr' | 'remoteok' | 'manual'
-	ScoreFit    *int   // nil until scoring runs (CP5)
-	ScoreReason string
-	Status      string // 'new' | 'approved' | 'discarded'
-	CreatedAt   time.Time
+	ID                 int64
+	Title              string
+	Company            string
+	URL                string // unique; empty when no link is available
+	Description        string
+	Source             string // 'remotive' | 'himalayas' | 'jobicy' | 'remoteok' | 'manual'
+	ScoreFit           *int   // nil until scoring runs (CP5)
+	ScoreReason        string
+	Status             string // 'new' | 'approved' | 'discarded'
+	ExternalID         string
+	MatchedKeywords    []string
+	MatchedResumeTerms []string
+	CreatedAt          time.Time
+}
+
+// Source represents an external vacancy source (CP6).
+type Source struct {
+	ID           string // slug PK (e.g. "himalayas", "remotive")
+	Name         string // display name
+	Adapter      string // adapter slug registered in code
+	Enabled      bool
+	Priority     int
+	AuthType     string // "none" | "api_key"
+	AuthConfig   string // encrypted JSON (empty when auth_type == "none")
+	Capabilities string // JSON string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// DiscoveryRun records an automated or manual discovery execution (CP6).
+type DiscoveryRun struct {
+	ID           int64
+	StartedAt    time.Time
+	CompletedAt  *time.Time
+	Status       string // 'running' | 'completed' | 'failed'
+	Stats        string // JSON with counters and per-source status
+	ErrorMessage string
 }
 
 // Application tracks a candidacy after a job is approved.
@@ -71,11 +98,25 @@ type Repository interface {
 
 	// jobs
 	CreateJob(ctx context.Context, j Job) (int64, error)
+	InsertDiscoveredJob(ctx context.Context, j Job) (int64, bool, error) // dedup on url; returns (id, inserted, error)
 	GetJob(ctx context.Context, id int64) (Job, error)
 	ListJobs(ctx context.Context, status string) ([]Job, error) // empty status = all
 	UpdateJobStatus(ctx context.Context, id int64, status string) error
 	SetJobScore(ctx context.Context, id int64, score int, reason string) error
 	JobURLExists(ctx context.Context, url string) (bool, error) // dedup (CP5/CP6)
+
+	// sources (CP6)
+	ListSources(ctx context.Context) ([]Source, error)
+	GetSource(ctx context.Context, id string) (Source, error)
+	CreateSource(ctx context.Context, s Source) error
+	UpdateSource(ctx context.Context, s Source) error
+	DeleteSource(ctx context.Context, id string) error
+
+	// discovery_runs (CP6)
+	CreateDiscoveryRun(ctx context.Context, r DiscoveryRun) (int64, error)
+	UpdateDiscoveryRun(ctx context.Context, r DiscoveryRun) error
+	GetDiscoveryRun(ctx context.Context, id int64) (DiscoveryRun, error)
+	LatestDiscoveryRun(ctx context.Context) (DiscoveryRun, error)
 
 	// applications
 	CreateApplication(ctx context.Context, a Application) (int64, error)

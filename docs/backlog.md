@@ -120,6 +120,14 @@
 
 ---
 
+## Discovery & Sources (Checkpoint 6)
+
+### UI Revision for Checkpoint 6
+
+- **Status:** proposto
+- **Esforço:** médio
+- **Descrição:** Alinhar a UI da descoberta automática, gerenciamento de fontes e páginas de settings com o design system do projeto (navegação em abas, cards, badges, modais, foco acessível). Incluir polimento visual, layout responsivo e revisão de design.
+
 ## Priorização sugerida (valor × esforço)
 
 1. **B10** (botão discreto de cópia) — esforço mínimo de UI, ganho imediato de ergonomia no CP4.

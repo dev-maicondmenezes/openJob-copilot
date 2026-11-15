@@ -13,11 +13,27 @@
 		score_reason: string;
 		status: string;
 		created_at: string;
+		external_id?: string;
+		matched_keywords?: string[];
+		matched_resume_terms?: string[];
 	}
 
 	let jobs: Job[] = $state([]);
 	let loading = $state(true);
 	let llmConfigured = $state(true);
+
+	// Discovery state
+	let discovering = $state(false);
+	let discoveryKeywords = $state<string[]>([]);
+	let resumeFilterActive = $state(false);
+	let lastRunStats = $state<{
+		fetched: number;
+		filtered_keywords: number;
+		filtered_resume: number;
+		new_jobs: number;
+		duplicates: number;
+		scored: number;
+	} | null>(null);
 
 	// Form state — a URL é a fonte primária: colar o link preenche o resto.
 	let title = $state('');
@@ -85,8 +101,63 @@
 	}
 
 	onMount(async () => {
-		await Promise.all([loadJobs(), checkLLM()]);
+		await Promise.all([loadJobs(), checkLLM(), loadDiscoveryConfig()]);
 	});
+
+	async function loadDiscoveryConfig() {
+		try {
+			const res = await fetch('/api/settings/discovery');
+			if (res.ok) {
+				const data = await res.json();
+				discoveryKeywords = data.keywords ?? [];
+				resumeFilterActive = data.resume_filter?.enabled ?? false;
+			}
+		} catch {
+			// silencioso
+		}
+	}
+
+	async function triggerDiscovery() {
+		if (discovering) return;
+		discovering = true;
+		status = null;
+		try {
+			const res = await fetch('/api/jobs/discover', { method: 'POST' });
+			if (res.status === 409) {
+				status = { kind: 'error', text: 'Já existe uma busca em andamento. Aguarde a conclusão.' };
+			} else if (!res.ok) {
+				const err = await res.json().catch(() => ({}));
+				status = { kind: 'error', text: err.error ?? 'Falha ao iniciar busca automática.' };
+				discovering = false;
+				return;
+			}
+
+			// Polling status
+			for (let i = 0; i < 40; i++) {
+				await new Promise((r) => setTimeout(r, 1200));
+				const sRes = await fetch('/api/jobs/discover/status');
+				if (sRes.ok) {
+					const sData = await sRes.json();
+					if (!sData.running) {
+						if (sData.latest_run?.stats) {
+							const stats = sData.latest_run.stats;
+							lastRunStats = stats;
+							status = {
+								kind: 'success',
+								text: `Busca finalizada: ${stats.fetched} analisadas, ${stats.new_jobs} novas cadastradas (${stats.scored} pontuadas).`
+							};
+						}
+						break;
+					}
+				}
+			}
+			await loadJobs();
+		} catch {
+			status = { kind: 'error', text: 'Falha de rede durante a busca de vagas.' };
+		} finally {
+			discovering = false;
+		}
+	}
 
 	async function loadJobs() {
 		try {
@@ -206,6 +277,14 @@
 		approved: 'aprovada',
 		discarded: 'descartada'
 	};
+
+	const sourceLabels: Record<string, string> = {
+		himalayas: 'Himalayas',
+		remotive: 'Remotive',
+		jobicy: 'Jobicy',
+		remoteok: 'Remote OK',
+		manual: 'Manual'
+	};
 </script>
 
 <svelte:head>
@@ -225,6 +304,56 @@
 		<a href="/settings">Configurar</a>
 	</div>
 {/if}
+
+<section class="card discovery-card" aria-label="Descoberta Automática de Vagas">
+	<div class="discovery-content">
+		<div class="discovery-text">
+			<div class="discovery-title-row">
+				<h2>Descoberta Automática de Vagas</h2>
+				<span class="badge-free">APIs Gratuitas</span>
+			</div>
+			<p class="hint">
+				Busca remota em fontes oficiais com APIs públicas gratuitas (Himalayas, Remotive, Jobicy, Remote OK) com filtros prévios.
+			</p>
+			<div class="discovery-meta">
+				<span class="meta-item">
+					<strong>Palavras-chave:</strong>
+					{#if discoveryKeywords.length > 0}
+						{discoveryKeywords.join(', ')}
+					{:else}
+						<em>nenhuma configurada</em>
+					{/if}
+				</span>
+				<span class="meta-item">
+					<strong>Filtro por currículo:</strong>
+					{resumeFilterActive ? 'Ativo' : 'Desativado'}
+				</span>
+				<a href="/settings/discovery" class="settings-link">⚙ Ajustar busca & filtros</a>
+			</div>
+		</div>
+
+		<div class="discovery-actions">
+			<button
+				type="button"
+				class="primary btn-discover"
+				disabled={discovering}
+				onclick={triggerDiscovery}
+			>
+				{discovering ? 'Buscando vagas…' : '⚡ Buscar Vagas Agora'}
+			</button>
+		</div>
+	</div>
+
+	{#if lastRunStats}
+		<div class="discovery-stats">
+			<span>Analisadas: <strong>{lastRunStats.fetched}</strong></span>
+			<span>Após palavras-chave: <strong>{lastRunStats.fetched - lastRunStats.filtered_keywords}</strong></span>
+			<span>Após currículo: <strong>{lastRunStats.fetched - lastRunStats.filtered_keywords - lastRunStats.filtered_resume}</strong></span>
+			<span>Novas adicionadas: <strong class="highlight-green">{lastRunStats.new_jobs}</strong></span>
+			<span>Com score IA: <strong>{lastRunStats.scored}</strong></span>
+		</div>
+	{/if}
+</section>
 
 <section class="card" aria-label="Nova vaga">
 	<header class="card-head">
@@ -285,7 +414,12 @@
 				<header class="card-head">
 					<div class="job-title">
 						<h2>{job.title}</h2>
-						<p class="muted">{job.company}</p>
+						<div class="company-row">
+							<span class="muted">{job.company}</span>
+							{#if job.source}
+								<span class="source-tag">{sourceLabels[job.source] ?? job.source}</span>
+							{/if}
+						</div>
 					</div>
 					<div class="badges">
 						{#if job.score_fit !== null}
@@ -298,7 +432,33 @@
 				</header>
 
 				{#if job.url}
-					<a class="link" href={job.url} target="_blank" rel="noopener noreferrer">{job.url}</a>
+					<div class="link-row">
+						<a class="link" href={job.url} target="_blank" rel="noopener noreferrer">{job.url}</a>
+						{#if job.source === 'remotive' || job.source === 'remoteok' || job.source === 'jobicy'}
+							<span class="attrib-badge">via {sourceLabels[job.source] ?? job.source}</span>
+						{/if}
+					</div>
+				{/if}
+
+				{#if (job.matched_keywords && job.matched_keywords.length > 0) || (job.matched_resume_terms && job.matched_resume_terms.length > 0)}
+					<div class="matched-box">
+						{#if job.matched_keywords && job.matched_keywords.length > 0}
+							<div class="matched-group">
+								<span class="matched-label">Palavras-chave:</span>
+								{#each job.matched_keywords as kw}
+									<span class="chip-kw">{kw}</span>
+								{/each}
+							</div>
+						{/if}
+						{#if job.matched_resume_terms && job.matched_resume_terms.length > 0}
+							<div class="matched-group">
+								<span class="matched-label">Aderência ao currículo:</span>
+								{#each job.matched_resume_terms as rt}
+									<span class="chip-resume">{rt}</span>
+								{/each}
+							</div>
+						{/if}
+					</div>
 				{/if}
 
 				{#if job.score_reason}
@@ -569,5 +729,156 @@
 		color: var(--text-muted);
 		text-align: center;
 		padding: 1.5rem 0;
+	}
+
+	/* Discovery Banner Styles */
+	.discovery-card {
+		background: linear-gradient(to right bottom, var(--surface), var(--surface-soft, #f8fafc));
+		border-left: 4px solid var(--primary, #2563eb);
+	}
+
+	.discovery-content {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.discovery-text {
+		flex: 1;
+		min-width: 280px;
+	}
+
+	.discovery-title-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.25rem;
+	}
+
+	.discovery-title-row h2 {
+		margin: 0;
+		font-size: 1.05rem;
+	}
+
+	.badge-free {
+		font-size: 0.65rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		background: #ecfdf5;
+		color: #047857;
+		padding: 0.15rem 0.45rem;
+		border-radius: 999px;
+	}
+
+	.discovery-meta {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.75rem;
+		font-size: 0.8rem;
+		color: var(--text-muted);
+		margin-top: 0.5rem;
+	}
+
+	.settings-link {
+		color: var(--primary, #2563eb);
+		text-decoration: underline;
+		font-weight: 500;
+	}
+
+	.btn-discover {
+		font-weight: 600;
+		white-space: nowrap;
+		padding: 0.6rem 1rem;
+	}
+
+	.discovery-stats {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 1rem;
+		margin-top: 1rem;
+		padding-top: 0.75rem;
+		border-top: 1px dashed var(--border);
+		font-size: 0.8rem;
+		color: var(--text-muted);
+	}
+
+	.highlight-green {
+		color: #047857;
+		font-size: 0.95rem;
+	}
+
+	.company-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-top: 0.1rem;
+	}
+
+	.source-tag {
+		font-size: 0.7rem;
+		font-weight: 600;
+		background: var(--surface-soft, #f1f5f9);
+		color: var(--text-muted);
+		padding: 0.1rem 0.4rem;
+		border-radius: 4px;
+	}
+
+	.link-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.4rem;
+		flex-wrap: wrap;
+	}
+
+	.attrib-badge {
+		font-size: 0.65rem;
+		background: #eff6ff;
+		color: #1d4ed8;
+		padding: 0.1rem 0.35rem;
+		border-radius: 4px;
+	}
+
+	.matched-box {
+		background: var(--surface-soft, #f8fafc);
+		border-radius: 6px;
+		padding: 0.5rem;
+		margin-bottom: 0.6rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
+	.matched-group {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.35rem;
+	}
+
+	.matched-label {
+		font-size: 0.72rem;
+		font-weight: 600;
+		color: var(--text-muted);
+	}
+
+	.chip-kw {
+		font-size: 0.7rem;
+		background: #dbeafe;
+		color: #1e40af;
+		padding: 0.05rem 0.35rem;
+		border-radius: 3px;
+	}
+
+	.chip-resume {
+		font-size: 0.7rem;
+		background: #dcfce7;
+		color: #166534;
+		padding: 0.05rem 0.35rem;
+		border-radius: 3px;
 	}
 </style>

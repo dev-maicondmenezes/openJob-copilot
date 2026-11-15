@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -124,30 +125,93 @@ func (s *SQLiteStore) CreateJob(ctx context.Context, j Job) (int64, error) {
 	if j.URL != "" {
 		url = j.URL
 	}
+	var extID, kwJSON, resJSON any
+	if j.ExternalID != "" {
+		extID = j.ExternalID
+	}
+	if len(j.MatchedKeywords) > 0 {
+		if b, err := json.Marshal(j.MatchedKeywords); err == nil {
+			kwJSON = string(b)
+		}
+	}
+	if len(j.MatchedResumeTerms) > 0 {
+		if b, err := json.Marshal(j.MatchedResumeTerms); err == nil {
+			resJSON = string(b)
+		}
+	}
+
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO jobs (title, company, url, description, source, status, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		j.Title, j.Company, url, j.Description, j.Source, j.Status, nowUTC())
+		INSERT INTO jobs (title, company, url, description, source, status, external_id, matched_keywords, matched_resume_terms, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		j.Title, j.Company, url, j.Description, j.Source, j.Status, extID, kwJSON, resJSON, nowUTC())
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
 }
 
+// InsertDiscoveredJob persists a discovered vacancy using INSERT OR IGNORE
+// on the UNIQUE url constraint, deduplicating atomically without race conditions.
+// Returns (id, true, nil) on insert, or (0, false, nil) if duplicate.
+func (s *SQLiteStore) InsertDiscoveredJob(ctx context.Context, j Job) (int64, bool, error) {
+	if j.URL == "" {
+		return 0, false, errors.New("store: discovered job url cannot be empty")
+	}
+	var extID, kwJSON, resJSON any
+	if j.ExternalID != "" {
+		extID = j.ExternalID
+	}
+	if len(j.MatchedKeywords) > 0 {
+		if b, err := json.Marshal(j.MatchedKeywords); err == nil {
+			kwJSON = string(b)
+		}
+	}
+	if len(j.MatchedResumeTerms) > 0 {
+		if b, err := json.Marshal(j.MatchedResumeTerms); err == nil {
+			resJSON = string(b)
+		}
+	}
+
+	res, err := s.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO jobs (title, company, url, description, source, status, external_id, matched_keywords, matched_resume_terms, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		j.Title, j.Company, j.URL, j.Description, j.Source, j.Status, extID, kwJSON, resJSON, nowUTC())
+	if err != nil {
+		return 0, false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, false, err
+	}
+	if n == 0 {
+		return 0, false, nil
+	}
+	id, err := res.LastInsertId()
+	return id, true, err
+}
+
 const jobCols = `id, title, company, COALESCE(url, ''), description, source,
-	score_fit, COALESCE(score_reason, ''), status, created_at`
+	score_fit, COALESCE(score_reason, ''), status, COALESCE(external_id, ''),
+	COALESCE(matched_keywords, ''), COALESCE(matched_resume_terms, ''), created_at`
 
 func scanJob(scan func(dest ...any) error) (Job, error) {
 	var j Job
 	var score sql.NullInt64
-	var created string
+	var extID, kwJSON, resJSON, created string
 	if err := scan(&j.ID, &j.Title, &j.Company, &j.URL, &j.Description, &j.Source,
-		&score, &j.ScoreReason, &j.Status, &created); err != nil {
+		&score, &j.ScoreReason, &j.Status, &extID, &kwJSON, &resJSON, &created); err != nil {
 		return j, err
 	}
 	if score.Valid {
 		v := int(score.Int64)
 		j.ScoreFit = &v
+	}
+	j.ExternalID = extID
+	if kwJSON != "" {
+		_ = json.Unmarshal([]byte(kwJSON), &j.MatchedKeywords)
+	}
+	if resJSON != "" {
+		_ = json.Unmarshal([]byte(resJSON), &j.MatchedResumeTerms)
 	}
 	j.CreatedAt, _ = parseUTC(created)
 	return j, nil
@@ -358,6 +422,148 @@ func (s *SQLiteStore) ListNotifyLog(ctx context.Context, limit int) ([]NotifyLog
 		logs = append(logs, n)
 	}
 	return logs, rows.Err()
+}
+
+// ---- sources ------------------------------------------------------------
+
+const sourceCols = `id, name, adapter, enabled, priority, auth_type,
+	COALESCE(auth_config, ''), capabilities, created_at, updated_at`
+
+func scanSource(scan func(dest ...any) error) (Source, error) {
+	var s Source
+	var enabled int
+	var created, updated string
+	if err := scan(&s.ID, &s.Name, &s.Adapter, &enabled, &s.Priority, &s.AuthType,
+		&s.AuthConfig, &s.Capabilities, &created, &updated); err != nil {
+		return s, err
+	}
+	s.Enabled = enabled != 0
+	s.CreatedAt, _ = parseUTC(created)
+	s.UpdatedAt, _ = parseUTC(updated)
+	return s, nil
+}
+
+func (s *SQLiteStore) ListSources(ctx context.Context) ([]Source, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+sourceCols+` FROM sources ORDER BY priority ASC, id ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sources []Source
+	for rows.Next() {
+		src, err := scanSource(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		sources = append(sources, src)
+	}
+	return sources, rows.Err()
+}
+
+func (s *SQLiteStore) GetSource(ctx context.Context, id string) (Source, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+sourceCols+` FROM sources WHERE id = ?`, id)
+	src, err := scanSource(row.Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		return src, ErrNotFound
+	}
+	return src, err
+}
+
+func (s *SQLiteStore) CreateSource(ctx context.Context, src Source) error {
+	enabled := 0
+	if src.Enabled {
+		enabled = 1
+	}
+	now := nowUTC()
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO sources (id, name, adapter, enabled, priority, auth_type, auth_config, capabilities, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		src.ID, src.Name, src.Adapter, enabled, src.Priority, src.AuthType, src.AuthConfig, src.Capabilities, now, now)
+	return err
+}
+
+func (s *SQLiteStore) UpdateSource(ctx context.Context, src Source) error {
+	enabled := 0
+	if src.Enabled {
+		enabled = 1
+	}
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE sources
+		SET name = ?, adapter = ?, enabled = ?, priority = ?, auth_type = ?, auth_config = ?, capabilities = ?, updated_at = ?
+		WHERE id = ?`,
+		src.Name, src.Adapter, enabled, src.Priority, src.AuthType, src.AuthConfig, src.Capabilities, nowUTC(), src.ID)
+	if err != nil {
+		return err
+	}
+	return ensureRow(res)
+}
+
+func (s *SQLiteStore) DeleteSource(ctx context.Context, id string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM sources WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	return ensureRow(res)
+}
+
+// ---- discovery_runs -----------------------------------------------------
+
+const discoveryRunCols = `id, started_at, COALESCE(completed_at, ''), status, stats, COALESCE(error_message, '')`
+
+func scanDiscoveryRun(scan func(dest ...any) error) (DiscoveryRun, error) {
+	var r DiscoveryRun
+	var started, completed string
+	if err := scan(&r.ID, &started, &completed, &r.Status, &r.Stats, &r.ErrorMessage); err != nil {
+		return r, err
+	}
+	r.StartedAt, _ = parseUTC(started)
+	if completed != "" {
+		t, _ := parseUTC(completed)
+		r.CompletedAt = &t
+	}
+	return r, nil
+}
+
+func (s *SQLiteStore) CreateDiscoveryRun(ctx context.Context, r DiscoveryRun) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `
+		INSERT INTO discovery_runs (started_at, completed_at, status, stats, error_message)
+		VALUES (?, ?, ?, ?, ?)`,
+		nowUTC(), nullableTime(r.CompletedAt), r.Status, r.Stats, r.ErrorMessage)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *SQLiteStore) UpdateDiscoveryRun(ctx context.Context, r DiscoveryRun) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE discovery_runs
+		SET completed_at = ?, status = ?, stats = ?, error_message = ?
+		WHERE id = ?`,
+		nullableTime(r.CompletedAt), r.Status, r.Stats, r.ErrorMessage, r.ID)
+	if err != nil {
+		return err
+	}
+	return ensureRow(res)
+}
+
+func (s *SQLiteStore) GetDiscoveryRun(ctx context.Context, id int64) (DiscoveryRun, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+discoveryRunCols+` FROM discovery_runs WHERE id = ?`, id)
+	r, err := scanDiscoveryRun(row.Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		return r, ErrNotFound
+	}
+	return r, err
+}
+
+func (s *SQLiteStore) LatestDiscoveryRun(ctx context.Context) (DiscoveryRun, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+discoveryRunCols+` FROM discovery_runs ORDER BY id DESC LIMIT 1`)
+	r, err := scanDiscoveryRun(row.Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		return r, ErrNotFound
+	}
+	return r, err
 }
 
 // ---- helpers ------------------------------------------------------------

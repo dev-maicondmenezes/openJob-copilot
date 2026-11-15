@@ -45,8 +45,12 @@ func TestOpenIsIdempotent(t *testing.T) {
 	if err := second.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 1 {
-		t.Errorf("applied migrations = %d, want 1", count)
+	migs, err := loadMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != len(migs) {
+		t.Errorf("applied migrations = %d, want %d", count, len(migs))
 	}
 }
 
@@ -260,5 +264,155 @@ func TestMasterKeyWrongSizeFailsLoudly(t *testing.T) {
 	}
 	if _, err := LoadOrCreateMasterKey(path); err == nil {
 		t.Error("short key file accepted, want explicit error")
+	}
+}
+
+func TestSourcesCRUD(t *testing.T) {
+	repo := openTestStore(t)
+	ctx := context.Background()
+
+	// Default sources seeded by migration 0002
+	sources, err := repo.ListSources(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sources) < 4 {
+		t.Fatalf("expected at least 4 seeded sources, got %d", len(sources))
+	}
+
+	// Create custom source
+	s := Source{
+		ID:           "custom-src",
+		Name:         "Custom Source",
+		Adapter:      "custom_adapter",
+		Enabled:      true,
+		Priority:     50,
+		AuthType:     "none",
+		Capabilities: `{"supports_keyword_search":true}`,
+	}
+	if err := repo.CreateSource(ctx, s); err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+
+	got, err := repo.GetSource(ctx, "custom-src")
+	if err != nil {
+		t.Fatalf("get source: %v", err)
+	}
+	if got.Name != "Custom Source" || !got.Enabled || got.Priority != 50 {
+		t.Errorf("got unexpected source: %+v", got)
+	}
+
+	// Update source
+	got.Name = "Updated Source"
+	got.Enabled = false
+	got.Priority = 80
+	if err := repo.UpdateSource(ctx, got); err != nil {
+		t.Fatalf("update source: %v", err)
+	}
+	updated, err := repo.GetSource(ctx, "custom-src")
+	if err != nil {
+		t.Fatalf("get source after update: %v", err)
+	}
+	if updated.Name != "Updated Source" || updated.Enabled {
+		t.Errorf("got source after update: %+v", updated)
+	}
+
+	// Delete source
+	if err := repo.DeleteSource(ctx, "custom-src"); err != nil {
+		t.Fatalf("delete source: %v", err)
+	}
+	if _, err := repo.GetSource(ctx, "custom-src"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound after delete, got %v", err)
+	}
+}
+
+func TestDiscoveryRuns(t *testing.T) {
+	repo := openTestStore(t)
+	ctx := context.Background()
+
+	runID, err := repo.CreateDiscoveryRun(ctx, DiscoveryRun{
+		Status: "running",
+		Stats:  `{"fetched":0}`,
+	})
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+	if runID <= 0 {
+		t.Fatalf("invalid runID: %d", runID)
+	}
+
+	run, err := repo.GetDiscoveryRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if run.Status != "running" {
+		t.Errorf("status = %q, want running", run.Status)
+	}
+
+	// Update run
+	now := nowUTC()
+	run.CompletedAt = &now
+	run.Status = "completed"
+	run.Stats = `{"fetched":10,"new":5}`
+	if err := repo.UpdateDiscoveryRun(ctx, run); err != nil {
+		t.Fatalf("update run: %v", err)
+	}
+
+	latest, err := repo.LatestDiscoveryRun(ctx)
+	if err != nil {
+		t.Fatalf("latest run: %v", err)
+	}
+	if latest.ID != runID || latest.Status != "completed" || latest.CompletedAt == nil {
+		t.Errorf("latest run mismatch: %+v", latest)
+	}
+}
+
+func TestInsertDiscoveredJobDedup(t *testing.T) {
+	repo := openTestStore(t)
+	ctx := context.Background()
+
+	job := Job{
+		Title:              "Backend Engineer",
+		Company:            "TechCorp",
+		URL:                "https://techcorp.example/jobs/42",
+		Description:        "Go backend role",
+		Source:             "himalayas",
+		Status:             "new",
+		ExternalID:         "42",
+		MatchedKeywords:    []string{"backend", "go"},
+		MatchedResumeTerms: []string{"go", "api"},
+	}
+
+	// First insert: succeeds and returns inserted = true
+	id1, inserted, err := repo.InsertDiscoveredJob(ctx, job)
+	if err != nil {
+		t.Fatalf("first insert: %v", err)
+	}
+	if !inserted || id1 <= 0 {
+		t.Fatalf("expected inserted=true with valid id, got %v, id=%d", inserted, id1)
+	}
+
+	// Second insert with the same URL: deduplicated! (inserted = false, id = 0)
+	id2, inserted2, err := repo.InsertDiscoveredJob(ctx, job)
+	if err != nil {
+		t.Fatalf("second insert: %v", err)
+	}
+	if inserted2 || id2 != 0 {
+		t.Fatalf("expected inserted=false and id=0, got inserted=%v, id=%d", inserted2, id2)
+	}
+
+	// Verify job retrieved has matched terms and external ID
+	fetched, err := repo.GetJob(ctx, id1)
+	if err != nil {
+		t.Fatalf("get job: %v", err)
+	}
+	if fetched.ExternalID != "42" {
+		t.Errorf("externalID = %q, want 42", fetched.ExternalID)
+	}
+	if len(fetched.MatchedKeywords) != 2 || fetched.MatchedKeywords[0] != "backend" {
+		t.Errorf("matchedKeywords = %+v", fetched.MatchedKeywords)
+	}
+	if len(fetched.MatchedResumeTerms) != 2 || fetched.MatchedResumeTerms[0] != "go" {
+		t.Errorf("matchedResumeTerms = %+v", fetched.MatchedResumeTerms)
 	}
 }

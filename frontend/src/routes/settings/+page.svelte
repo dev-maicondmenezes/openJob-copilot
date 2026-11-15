@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import SettingsNav from '#lib/components/SettingsNav.svelte';
 
 	interface LLMConfig {
 		configured: boolean;
@@ -94,6 +95,8 @@
 <p class="page-subtitle">
 	Provedor de IA (BYOK) — sua chave fica no seu computador, cifrada, e nunca volta para o navegador.
 </p>
+
+<SettingsNav active="llm" />
 
 {#if status}
 	<div class="status {status.kind}" role="status">{status.text}</div>
