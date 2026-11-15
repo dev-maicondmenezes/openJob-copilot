@@ -1,7 +1,7 @@
 # openJob — Copiloto de Candidaturas
 
 > Local-first job application copilot (Go + SvelteKit, Docker, SQLite).
-> Spec: [`docs/context/spec.md`](docs/context/spec.md) · Plan: [`docs/plan/`](docs/plan/)
+> Spec: [`docs/context/spec.md`](docs/context/spec.md) · Plan: [`docs/plan/`](docs/plan/) · Backlog: [`docs/backlog.md`](docs/backlog.md)
 
 **Status: Checkpoint 3 (SQLite + BYOK) — done.**
 
@@ -185,3 +185,5 @@ são servidos pelo fallback da SPA.
 | 2 | SPA SvelteKit + PWA | ✅ este release — [plano](docs/plan/02-spa-pwa.md) |
 | 3 | SQLite + BYOK | ✅ este release — [plano](docs/plan/03-sqlite-byok.md) |
 | 4–9 | Currículo/tailoring, vagas, discovery, Telegram, validação, ATS | ⏳ [plano](docs/plan/README.md) |
+
+Melhorias pós-checkpoints (ex.: configuração de IA mais amigável, presets de provedores, multi-modelos): [`docs/backlog.md`](docs/backlog.md).
