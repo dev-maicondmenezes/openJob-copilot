@@ -118,10 +118,16 @@ func (s *SQLiteStore) LatestCurriculum(ctx context.Context) (Curriculum, error) 
 // ---- jobs ---------------------------------------------------------------
 
 func (s *SQLiteStore) CreateJob(ctx context.Context, j Job) (int64, error) {
+	// url is UNIQUE in the schema; store NULL (not '') for link-less jobs so
+	// several manual jobs without a URL never collide on the constraint.
+	var url any
+	if j.URL != "" {
+		url = j.URL
+	}
 	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO jobs (title, company, url, description, source, status, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		j.Title, j.Company, j.URL, j.Description, j.Source, j.Status, nowUTC())
+		j.Title, j.Company, url, j.Description, j.Source, j.Status, nowUTC())
 	if err != nil {
 		return 0, err
 	}
@@ -208,6 +214,21 @@ func (s *SQLiteStore) JobURLExists(ctx context.Context, urlStr string) (bool, er
 	return err == nil, err
 }
 
+// ActiveApplicationForJob returns the open candidacy (pending, sent,
+// interview or offer) linked to a job, or ErrNotFound when none exists —
+// the guard against duplicated approvals (CP5).
+func (s *SQLiteStore) ActiveApplicationForJob(ctx context.Context, jobID int64) (Application, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT `+appCols+` FROM applications
+		WHERE job_id = ? AND status IN ('pending', 'sent', 'interview', 'offer')
+		ORDER BY id DESC LIMIT 1`, jobID)
+	a, err := scanApplication(row.Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		return a, ErrNotFound
+	}
+	return a, err
+}
+
 // ---- applications -------------------------------------------------------
 
 func (s *SQLiteStore) CreateApplication(ctx context.Context, a Application) (int64, error) {
@@ -224,7 +245,7 @@ func (s *SQLiteStore) CreateApplication(ctx context.Context, a Application) (int
 	return res.LastInsertId()
 }
 
-const appCols = `id, job_id, COALESCE(tailored_curriculum_md, ''), status, sent_at, updated_at`
+const appCols = `id, job_id, COALESCE(tailored_curriculum_md, ''), status, COALESCE(sent_at, ''), updated_at`
 
 func scanApplication(scan func(dest ...any) error) (Application, error) {
 	var a Application

@@ -19,6 +19,8 @@ import (
 // New builds the root http.Handler.
 //   - /api/health → {"status":"ok"} (Checkpoint 1)
 //   - /api/settings/* → BYOK configuration (Checkpoint 3)
+//   - /api/curriculum/* → base resume + AI tailoring (Checkpoint 4)
+//   - /api/jobs/* + /api/applications → manual jobs, scoring, pipeline (CP5)
 //   - everything else → embedded SPA with index.html fallback so deep links
 //     (e.g. /jobs, /settings after Checkpoint 2) survive a reload.
 func New(cfg config.Config, logger *slog.Logger, repo store.Repository, masterKey []byte, llmClient llm.Client) http.Handler {
@@ -33,6 +35,12 @@ func New(cfg config.Config, logger *slog.Logger, repo store.Repository, masterKe
 			logger:    logger,
 		})
 		registerCurriculum(r, &curriculumAPI{
+			repo:      repo,
+			masterKey: masterKey,
+			llm:       llmClient,
+			logger:    logger,
+		})
+		registerJobs(r, &jobsAPI{
 			repo:      repo,
 			masterKey: masterKey,
 			llm:       llmClient,

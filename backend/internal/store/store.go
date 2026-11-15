@@ -82,6 +82,9 @@ type Repository interface {
 	GetApplication(ctx context.Context, id int64) (Application, error)
 	ListApplications(ctx context.Context) ([]Application, error)
 	UpdateApplicationStatus(ctx context.Context, id int64, status string) error
+	// ActiveApplicationForJob guards against duplicated approvals (CP5):
+	// one open candidacy per job, ErrNotFound when the coast is clear.
+	ActiveApplicationForJob(ctx context.Context, jobID int64) (Application, error)
 
 	// notify_log
 	InsertNotifyLog(ctx context.Context, n NotifyLog) (int64, error)
