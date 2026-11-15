@@ -12,19 +12,19 @@ Upload de currículo (PDF/MD/TXT) convertido para Markdown estruturado, e geraç
 
 ## Tarefas
 
-1. **Upload** (`internal/api/` + handler de curriculum):
+1. [x] **Upload** (`internal/api/` + handler de curriculum):
    - `POST /api/curriculum/upload` — multipart: PDF, MD ou TXT.
    - PDF → texto via `github.com/ledongthuc/pdf`; MD/TXT direto.
    - Normalizar para **Markdown estruturado** (seções: experiência, skills, educação...); armazenar em `curriculum.content_md`.
-   - Regras: **uma versão ativa** — upload novo substitui o anterior (linha mais recente é a ativa; manter histórico é opcional, decidir e documentar).
-2. **Tailoring** (`internal/tailor/`):
+   - Regras: **uma versão ativa** — upload novo substitui o anterior (linha mais recente é a ativa; manter histórico é opcional, decidir e documentar). Decisão: histórico preservado no SQLite (`ORDER BY id DESC LIMIT 1`).
+2. [x] **Tailoring** (`internal/tailor/`):
    - `POST /api/curriculum/tailor` — recebe `{job_id}` **ou** `{jd_text}` (texto colado); retorna currículo adaptado em Markdown.
-   - **Prompt versionado** em `internal/tailor/prompts.go` (const com versão, ex. `promptVersion = "v1"`): instruções de alinhamento de palavras-chave e realizações, sem inventar experiências.
+   - **Prompt versionado** em `internal/tailor/prompts.go` (`PromptVersion = "v1"`): instruções de alinhamento de palavras-chave e realizações, sem inventar experiências.
    - Regras de prompt: manter fatos, reordenar/enfatizar, incluir keywords da JD quando verdadeiras, saída **só em Markdown**.
-3. **UI** (`/curriculum`):
-   - Upload com preview do Markdown (render simples).
+3. [x] **UI** (`/curriculum`):
+   - Upload com preview do Markdown (render simples e raw).
    - Form de JD colada + botão "Gerar versão adaptada".
-   - **Diff visual base vs. adaptado** (lado a lado ou diff simplificado).
+   - **Diff visual base vs. adaptado** (lado a lado e diff unificado com adição/remoção).
 
 ## Critério de verificação
 
@@ -34,9 +34,10 @@ Upload de currículo (PDF/MD/TXT) convertido para Markdown estruturado, e geraç
 
 ## Registrar
 
-- Versão do prompt `v1` anotada (iterar depois com base no CP8 — "o tailoring está bom o suficiente?").
-- Teste de parsing de PDF (currículo real não pode sair vazio/garbled).
-- Nota: limitar tamanho de JD/currículo (ex. truncar em ~8k tokens) para custo e contexto.
+- **Versão do prompt `v1`**: anotada em `internal/tailor/prompts.go` (`PromptVersion = "v1"`). Foco estrito em veracidade zero alucinação, alinhamento ATS e saída exclusivamente em Markdown limpo.
+- **Teste de parsing de PDF**: implementado em `internal/curriculum/parser_test.go` (`TestParsePDF` e `TestParseEmptyPDF`), validando extração de texto real e rejeição de PDFs vazios/escaneados com mensagem orientativa.
+- **Limitação de tamanho**: `MaxCurriculumChars = 24000` e `MaxJDChars = 24000` (~8k tokens cada) definidos em `internal/tailor/prompts.go` com truncamento seguro para proteger custos e janelas de contexto.
+- **Histórico vs. Ativo**: cada novo upload cria uma linha no SQLite; o endpoint ativo seleciona `ORDER BY id DESC LIMIT 1`. Isso mantém rastreabilidade sem complicar o modelo de dados.
 
 ## Fora de escopo
 

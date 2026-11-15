@@ -19,6 +19,10 @@ import (
 // newTestServer boots the full handler stack against a throwaway SQLite file
 // (migrations included) and the real master-key/crypto path.
 func newTestServer(t *testing.T) *httptest.Server {
+	return newTestServerWithLLM(t, llm.NewOpenAIClient())
+}
+
+func newTestServerWithLLM(t *testing.T, llmClient llm.Client) *httptest.Server {
 	t.Helper()
 
 	dbPath := filepath.Join(t.TempDir(), "openjob.db")
@@ -34,7 +38,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 	}
 
 	cfg := config.Config{Port: "0", DBPath: dbPath, Hostname: "openjob.copilot"}
-	srv := httptest.NewServer(New(cfg, slog.Default(), repo, masterKey, llm.NewOpenAIClient()))
+	srv := httptest.NewServer(New(cfg, slog.Default(), repo, masterKey, llmClient))
 	t.Cleanup(srv.Close)
 	return srv
 }

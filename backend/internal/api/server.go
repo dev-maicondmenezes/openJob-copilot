@@ -32,6 +32,12 @@ func New(cfg config.Config, logger *slog.Logger, repo store.Repository, masterKe
 			llm:       llmClient,
 			logger:    logger,
 		})
+		registerCurriculum(r, &curriculumAPI{
+			repo:      repo,
+			masterKey: masterKey,
+			llm:       llmClient,
+			logger:    logger,
+		})
 		r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		})
