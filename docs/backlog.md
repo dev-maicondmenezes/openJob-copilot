@@ -82,10 +82,50 @@
 
 ---
 
+## Currículo & Tailoring (Checkpoint 4)
+
+### B7 — Extração de currículo direto do LinkedIn via OAuth / autorização
+- **Status:** proposto · ⚠️ maior esforço/restrições da API do LinkedIn
+- **Esforço:** grande
+- **Descrição:** permitir conectar conta do LinkedIn via login e autorização OAuth 2.0 para extrair os dados do perfil profissional diretamente para o currículo-base:
+  - Fluxo: botão "Importar do LinkedIn" na página de currículo, autorização do usuário na tela do LinkedIn, e backend recebe os dados de histórico profissional, formação, habilidades e resumo para estruturar em Markdown (`curriculum.content_md`).
+  - Restrições a avaliar: as APIs do LinkedIn para extração de perfil completo e histórico profissional costumam exigir aprovação em programas de parceria (Member Data Portability API ou LinkedIn Partner Program); o escopo básico OpenID (`openid profile email`) retorna apenas nome e foto. Necessário spike de viabilidade.
+  - Fallback: continuar suportando upload de PDF (inclusive o exportado pelo próprio LinkedIn) e MD/TXT (spec §3.1).
+- **Aceite:** usuário autoriza o aplicativo via LinkedIn e tem o currículo preenchido automaticamente em Markdown no banco local.
+
+### B8 — Tratamento de erros amigável no tailoring e upload (sem expor detalhes de log)
+- **Status:** proposto
+- **Esforço:** pequeno
+- **Descrição:** assegurar que erros no upload, conversão de PDF e tailoring com IA apresentem mensagens amigáveis e orientativas para o usuário, sem expor mensagens de erro internas, payloads brutos, stacks ou detalhes de log do servidor:
+  - Backend: registrar detalhes técnicos completos via `slog.Error` no terminal/log do servidor, mas retornar JSON com descrições amigáveis e orientadas à ação (ex.: substituir mensagens contendo JSON do provedor de IA ou erros de rede por "O provedor de IA não conseguiu gerar a adaptação no momento. Verifique sua chave em Configurações ou tente novamente em instantes.").
+  - Frontend: exibir banners de erro com texto claro, sem códigos de erro técnicos ou stacks.
+- **Aceite:** nenhuma falha de upload, parse ou IA vaza stack trace ou detalhes de log internos na tela do usuário.
+
+### B9 — Exportação da versão adaptada para os formatos aceitos para importação (PDF, TXT e MD)
+- **Status:** proposto
+- **Esforço:** médio
+- **Descrição:** permitir exportar o currículo adaptado para todos os formatos aceitos na importação (além do `.md` já existente):
+  - **TXT**: download do texto puro limpo, com marcadores simplificados e sem tags markdown.
+  - **PDF**: geração de PDF formatado e pronto para envio, gerado no backend via biblioteca Go ou no frontend via CSS de impressão (`@media print`) / `html2pdf`.
+  - **MD**: manter opção existente de baixar `.md`.
+- **Aceite:** usuário pode escolher baixar o currículo adaptado em PDF, TXT ou MD com um clique.
+
+### B10 — Botão discreto de cópia na área de exibição da versão adaptada
+- **Status:** proposto
+- **Esforço:** muito pequeno (UI)
+- **Descrição:** adicionar um botão discreto de cópia diretamente na área de exibição da versão adaptada (estilo botão de cópia de blocos de código/previews), tanto na visualização renderizada quanto nas abas de diff:
+  - Posicionamento discreto no canto superior direito do container de visualização.
+  - Ícone minimalista com tooltip e feedback rápido "Copiado!" para que o usuário não precise rolar até o topo da página para copiar o conteúdo adaptado.
+- **Aceite:** botão discreto presente no canto da área de exibição, copiando o Markdown adaptado e fornecendo feedback visual imediato.
+
+---
+
 ## Priorização sugerida (valor × esforço)
 
-1. **B6** (erros amigáveis) — dor imediata, esforço pequeno, melhora tudo que usa IA.
-2. **B1** (onboarding + links) — reduz a maior fricção de primeiro uso.
-3. **B3 → B4** (presets + free tier) — "começar de graça em 3 toques".
-4. **B2** (multi-perfis) — base para B5; flexibilidade real de custo/fallback.
-5. **B5** (OAuth) — só após spike de viabilidade; maior esforço e dependência de cada provedor.
+1. **B10** (botão discreto de cópia) — esforço mínimo de UI, ganho imediato de ergonomia no CP4.
+2. **B8 / B6** (erros amigáveis sem expor logs) — dor imediata, esforço pequeno, melhora a experiência e a segurança.
+3. **B1** (onboarding + links) — reduz a maior fricção de primeiro uso de IA.
+4. **B9** (exportação para PDF e TXT) — fecha o ciclo do currículo adaptado para envio direto aos ATSs.
+5. **B3 → B4** (presets + free tier) — "começar de graça em 3 toques".
+6. **B2** (multi-perfis) — base para flexibilidade real de custo/fallback.
+7. **B7** (LinkedIn OAuth) e **B5** (OAuth de provedores) — dependem de spikes de viabilidade com provedores externos e parceiros.

@@ -43,3 +43,10 @@ Upload de currículo (PDF/MD/TXT) convertido para Markdown estruturado, e geraç
 
 - Salvar o tailored em `applications` (isso acontece no CP5 via aprovação).
 - Importação LinkedIn via API (fase de productização; MVP permite colar perfil manualmente — spec §3.1).
+
+## Backlog de Melhorias (detalhadas em `docs/backlog.md`)
+
+- **B7 — Extração de currículo via LinkedIn OAuth**: conectar perfil via autorização para extrair dados direto para o Markdown do currículo-base.
+- **B8 — Tratamento de erros amigável**: mascarar detalhes de logs/stacks internas e exibir orientações amigáveis e acionáveis ao usuário.
+- **B9 — Exportação da versão adaptada para PDF, TXT e MD**: estender o download para todos os formatos aceitos na importação.
+- **B10 — Botão discreto de cópia**: botão minimalista de cópia direta no canto superior direito da área de exibição da versão adaptada.
