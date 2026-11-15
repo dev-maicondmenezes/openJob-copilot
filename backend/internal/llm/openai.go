@@ -31,12 +31,21 @@ func (c *OpenAIClient) httpClient() *http.Client {
 
 // Ping hits GET {base}/models with the configured key. A 200 means the
 // endpoint is reachable and the key accepted — enough for "Testar conexão".
+// Every returned error is scrubbed so the API key can never reach logs or
+// HTTP responses (provider error bodies are echoed verbatim and some
+// providers include the credentials in their error messages).
 func (c *OpenAIClient) Ping(ctx context.Context, cfg Config) error {
 	cfg = cfg.Normalize()
 	if cfg.APIKey == "" {
 		return ErrNotConfigured
 	}
+	if err := c.ping(ctx, cfg); err != nil {
+		return redact(err, cfg.APIKey)
+	}
+	return nil
+}
 
+func (c *OpenAIClient) ping(ctx context.Context, cfg Config) error {
 	ctx, cancel := WithTimeout(ctx)
 	defer cancel()
 
@@ -59,6 +68,7 @@ func (c *OpenAIClient) Ping(ctx context.Context, cfg Config) error {
 }
 
 // Complete runs POST /chat/completions and returns the first choice text.
+// Errors are scrubbed of the API key before leaving the package (see Ping).
 func (c *OpenAIClient) Complete(ctx context.Context, cfg Config, creq CompletionRequest) (string, error) {
 	cfg = cfg.Normalize()
 	if cfg.APIKey == "" {
@@ -67,6 +77,14 @@ func (c *OpenAIClient) Complete(ctx context.Context, cfg Config, creq Completion
 	if len(creq.Messages) == 0 {
 		return "", fmt.Errorf("llm: completion with no messages")
 	}
+	out, err := c.complete(ctx, cfg, creq)
+	if err != nil {
+		return "", redact(err, cfg.APIKey)
+	}
+	return out, nil
+}
+
+func (c *OpenAIClient) complete(ctx context.Context, cfg Config, creq CompletionRequest) (string, error) {
 
 	body := map[string]any{
 		"model":       cfg.Model,

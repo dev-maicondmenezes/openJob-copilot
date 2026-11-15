@@ -44,10 +44,14 @@ func main() {
 	logger.Info("master key ready", "path", masterKeyPath)
 
 	srv := &http.Server{
-		Addr:         ":" + cfg.Port,
-		Handler:      api.New(cfg, logger, repo, masterKey, llm.NewOpenAIClient()),
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		Addr:        ":" + cfg.Port,
+		Handler:     api.New(cfg, logger, repo, masterKey, llm.NewOpenAIClient()),
+		ReadTimeout: 10 * time.Second,
+		// WriteTimeout must exceed the LLM call budget (llm.requestTimeout =
+		// 120s): completions legitimately take 20–60s+. With the old 15s the
+		// server killed the connection mid-completion and the client saw
+		// "empty reply from server" / RemoteDisconnected.
+		WriteTimeout: 150 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 

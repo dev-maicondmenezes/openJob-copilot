@@ -23,8 +23,8 @@ type Config struct {
 
 // Message is one chat turn.
 type Message struct {
-	Role    string // 'system' | 'user' | 'assistant'
-	Content string
+	Role    string `json:"role"`    // 'system' | 'user' | 'assistant'
+	Content string `json:"content"` // wire format is lowercase (OpenAI protocol)
 }
 
 // CompletionRequest is a minimal chat completion request.
