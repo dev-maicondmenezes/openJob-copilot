@@ -9,32 +9,81 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/maicondmenezes/openjob/internal/config"
 	"github.com/maicondmenezes/openjob/internal/discovery"
+	"github.com/maicondmenezes/openjob/internal/events"
 	"github.com/maicondmenezes/openjob/internal/llm"
+	"github.com/maicondmenezes/openjob/internal/notifier"
 	"github.com/maicondmenezes/openjob/internal/store"
+	"github.com/maicondmenezes/openjob/internal/tasks"
 	"github.com/maicondmenezes/openjob/web"
+	"golang.org/x/time/rate"
 )
 
-// New builds the root http.Handler.
+// Runtime holds the background services started by New so main can stop them
+// gracefully on shutdown.
+type Runtime struct {
+	Bus      *events.Bus
+	Pool     *tasks.Pool
+	Notifier *notifier.InApp
+	Orch     *discovery.Orchestrator
+}
+
+// Stop terminates the background services in dependency order (HTTP server
+// shutdown happens before this, in main).
+func (rt *Runtime) Stop() {
+	if rt.Orch != nil {
+		rt.Orch.Stop()
+	}
+	if rt.Pool != nil {
+		rt.Pool.Stop()
+	}
+	if rt.Notifier != nil {
+		rt.Notifier.Stop()
+	}
+	if rt.Bus != nil {
+		rt.Bus.Close()
+	}
+}
+
+// New builds the root http.Handler and starts the background services.
 //   - /api/health → {"status":"ok"} (Checkpoint 1)
 //   - /api/settings/* → BYOK configuration (Checkpoint 3)
 //   - /api/curriculum/* → base resume + AI tailoring (Checkpoint 4)
 //   - /api/jobs/* + /api/applications → manual jobs, scoring, pipeline (CP5)
+//   - /api/settings/notifications + /api/settings/tasks (CP10)
 //   - everything else → embedded SPA with index.html fallback so deep links
 //     (e.g. /jobs, /settings after Checkpoint 2) survive a reload.
-func New(cfg config.Config, logger *slog.Logger, repo store.Repository, masterKey []byte, llmClient llm.Client) http.Handler {
+func New(cfg config.Config, logger *slog.Logger, repo store.Repository, masterKey []byte, llmClient llm.Client) (http.Handler, *Runtime) {
 	r := chi.NewRouter()
 
+	// CP10: in-process event bus (docs/adr/0009) + in-app subscriber.
+	bus := events.New()
+	appNotifier := notifier.NewInApp(repo, logger)
+	appNotifier.Start(bus)
+
+	// CP10: durable task queue (docs/adr/0010) with the migrated AI handlers.
+	registry := tasks.NewRegistry()
+	registry.Register(tasks.NewScoreJobHandler(repo, masterKey, llmClient, rate.NewLimiter(rate.Every(300*time.Millisecond), 1), logger))
+	registry.Register(tasks.NewExtractKeywordsHandler(repo))
+	taskCfg, _ := tasks.LoadConfig(context.Background(), repo)
+	pool := tasks.NewPool(repo, registry, bus, taskCfg, logger)
+	pool.Start()
+
 	orch := discovery.NewOrchestrator(repo, nil, masterKey, llmClient, logger)
+	orch.SetScoreEnqueuer(tasks.DiscoveryEnqueuer{Pool: pool})
+	orch.SetPublisher(bus)
 	if discCfg, err := orch.LoadConfig(context.Background()); err == nil {
 		orch.ConfigureTicker(discCfg.DiscoveryInterval)
 	}
 
+	runtime := &Runtime{Bus: bus, Pool: pool, Notifier: appNotifier, Orch: orch}
+
 	r.Route("/api", func(r chi.Router) {
-		r.Get("/health", handleHealth(cfg))
+		r.Get("/health", handleHealth(cfg, repo))
 		registerSettings(r, &settingsAPI{
 			repo:      repo,
 			masterKey: masterKey,
@@ -52,6 +101,7 @@ func New(cfg config.Config, logger *slog.Logger, repo store.Repository, masterKe
 			masterKey: masterKey,
 			llm:       llmClient,
 			logger:    logger,
+			bus:       bus,
 		})
 		registerSources(r, &sourcesAPI{
 			repo:         repo,
@@ -63,6 +113,17 @@ func New(cfg config.Config, logger *slog.Logger, repo store.Repository, masterKe
 			orchestrator: orch,
 			repo:         repo,
 			logger:       logger,
+			pool:         pool,
+		})
+		registerNotifications(r, &notificationsAPI{
+			repo:   repo,
+			logger: logger,
+		})
+		registerTasksAPI(r, &tasksAPI{
+			repo:   repo,
+			pool:   pool,
+			bus:    bus,
+			logger: logger,
 		})
 		r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
@@ -71,16 +132,46 @@ func New(cfg config.Config, logger *slog.Logger, repo store.Repository, masterKe
 
 	r.Get("/*", spaHandler(logger))
 
-	return r
+	return r, runtime
 }
 
-func handleHealth(cfg config.Config) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{
+// handleHealth answers GET /api/health with liveness plus the CP10 queue and
+// bell counters (useful for scripts and the status UI).
+func handleHealth(cfg config.Config, repo store.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+
+		payload := map[string]any{
 			"status":   "ok",
 			"hostname": cfg.Hostname,
-		})
+			"tasks": map[string]any{
+				"queued":           0,
+				"running":          0,
+				"failed_last_24h":  0,
+			},
+			"notifications": map[string]any{"unread": 0},
+		}
+		if counts, err := repo.CountTasksByStatus(ctx); err == nil {
+			payload["tasks"] = map[string]any{
+				"queued":          counts["queued"],
+				"running":         counts["running"],
+				"failed_last_24h": failedSince(ctx, repo),
+			}
+		}
+		if unread, err := repo.CountUnreadNotifications(ctx); err == nil {
+			payload["notifications"] = map[string]any{"unread": unread}
+		}
+		writeJSON(w, http.StatusOK, payload)
 	}
+}
+
+func failedSince(ctx context.Context, repo store.Repository) int {
+	n, err := repo.CountTasksFailedSince(ctx, time.Now().UTC().Add(-24*time.Hour))
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // spaHandler serves files from the embedded SPA bundle. Any path that does

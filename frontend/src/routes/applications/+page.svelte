@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { toast } from '#lib/toast.svelte.ts';
 
-	// Checkpoint 5: lista mínima do pipeline. Colunas/estágios e mudança de
-	// status (PATCH /api/applications/:id) chegam no Checkpoint 7.
+	// CP5: pipeline; CP10: mudança de status via PATCH /api/applications/:id
+	// gera evento no bus → sino + notificação persistida. O toast aqui é
+	// client-side (feedback imediato).
 	interface AppItem {
 		id: number;
 		job_id: number;
@@ -18,9 +20,21 @@
 		};
 	}
 
+	const STATUSES = ['pending', 'sent', 'interview', 'rejected', 'offer'] as const;
+	type Status = (typeof STATUSES)[number];
+
+	const STATUS_LABEL: Record<Status, string> = {
+		pending: 'Pendente',
+		sent: 'Enviada',
+		interview: 'Entrevista',
+		rejected: 'Rejeitada',
+		offer: 'Oferta'
+	};
+
 	let apps: AppItem[] = $state([]);
 	let loading = $state(true);
 	let error = $state('');
+	let changingId = $state<number | null>(null);
 
 	onMount(async () => {
 		try {
@@ -38,6 +52,29 @@
 			loading = false;
 		}
 	});
+
+	async function changeStatus(app: AppItem, status: Status): Promise<void> {
+		if (status === app.status) return;
+		changingId = app.id;
+		try {
+			const res = await fetch(`/api/applications/${app.id}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ status })
+			});
+			if (res.ok) {
+				app.status = status;
+				toast('success', `${app.job?.title ?? 'Candidatura'} → ${STATUS_LABEL[status]}`);
+			} else {
+				const err = await res.json().catch(() => ({}));
+				toast('error', err.error ?? 'Falha ao mudar status.');
+			}
+		} catch {
+			toast('error', 'Falha de rede ao mudar status.');
+		} finally {
+			changingId = null;
+		}
+	}
 
 	function dateFmt(iso: string): string {
 		return new Date(iso).toLocaleDateString('pt-BR', {
@@ -75,6 +112,19 @@
 					</div>
 					<span class="pill st-{app.status}">{app.status}</span>
 				</header>
+
+				<div class="status-row">
+					{#each STATUSES as s (s)}
+						<button
+							class="st-btn"
+							class:current={app.status === s}
+							disabled={changingId === app.id}
+							onclick={() => changeStatus(app, s)}
+						>
+							{STATUS_LABEL[s]}
+						</button>
+					{/each}
+				</div>
 
 				{#if app.job?.url}
 					<a class="link" href={app.job.url} target="_blank" rel="noopener noreferrer">
@@ -121,6 +171,35 @@
 		background: var(--accent-soft);
 		color: var(--accent);
 		flex-shrink: 0;
+	}
+
+	.status-row {
+		display: flex;
+		gap: 0.3rem;
+		flex-wrap: wrap;
+		margin-top: 0.6rem;
+	}
+
+	.st-btn {
+		border: 1px solid var(--border);
+		background: var(--surface);
+		color: var(--text-muted);
+		border-radius: 999px;
+		padding: 0.25rem 0.6rem;
+		font-size: 0.72rem;
+		cursor: pointer;
+	}
+
+	.st-btn.current {
+		background: var(--accent-soft);
+		color: var(--accent);
+		border-color: var(--accent);
+		font-weight: 600;
+	}
+
+	.st-btn:disabled {
+		opacity: 0.6;
+		cursor: default;
 	}
 
 	.pill.st-rejected {

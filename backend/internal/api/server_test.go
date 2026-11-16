@@ -38,7 +38,9 @@ func newTestServerWithLLM(t *testing.T, llmClient llm.Client) *httptest.Server {
 	}
 
 	cfg := config.Config{Port: "0", DBPath: dbPath, Hostname: "openjob.copilot"}
-	srv := httptest.NewServer(New(cfg, slog.Default(), repo, masterKey, llmClient))
+	handler, runtime := New(cfg, slog.Default(), repo, masterKey, llmClient)
+	t.Cleanup(runtime.Stop)
+	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 	return srv
 }

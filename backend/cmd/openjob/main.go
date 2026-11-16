@@ -43,9 +43,14 @@ func main() {
 	}
 	logger.Info("master key ready", "path", masterKeyPath)
 
+	// CP10: New also starts the event bus, the in-app notifier and the task
+	// worker pool; runtime.Stop tears them down before the store closes.
+	handler, runtime := api.New(cfg, logger, repo, masterKey, llm.NewOpenAIClient())
+	defer runtime.Stop()
+
 	srv := &http.Server{
-		Addr:        ":" + cfg.Port,
-		Handler:     api.New(cfg, logger, repo, masterKey, llm.NewOpenAIClient()),
+		Addr:    ":" + cfg.Port,
+		Handler: handler,
 		ReadTimeout: 10 * time.Second,
 		// WriteTimeout must exceed the LLM call budget (llm.requestTimeout =
 		// 120s): completions legitimately take 20–60s+. With the old 15s the
@@ -81,8 +86,10 @@ func main() {
 		defer cancel()
 		if err := srv.Shutdown(ctx); err != nil {
 			logger.Error("graceful shutdown failed", "err", err)
+			runtime.Stop()
 			os.Exit(1)
 		}
+		runtime.Stop() // task pool (drains ctx), notifier, bus, discovery ticker
 		if err := repo.Close(); err != nil {
 			logger.Warn("store close", "err", err)
 		}

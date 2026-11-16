@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/maicondmenezes/openjob/internal/events"
 	"github.com/maicondmenezes/openjob/internal/jobfetch"
 	"github.com/maicondmenezes/openjob/internal/llm"
 	"github.com/maicondmenezes/openjob/internal/score"
@@ -20,11 +21,14 @@ import (
 )
 
 // jobsAPI serves the manual job entry + scoring + approval endpoints (CP5).
+// bus (CP10) publishes application lifecycle events to the in-app notifier
+// and to any future channel; publishing is best-effort.
 type jobsAPI struct {
 	repo      store.Repository
 	masterKey []byte
 	llm       llm.Client
 	logger    *slog.Logger
+	bus       *events.Bus
 }
 
 // registerJobs mounts the jobs and applications-list routes.
@@ -36,6 +40,7 @@ func registerJobs(r chi.Router, j *jobsAPI) {
 	r.Post("/jobs/{id}/approve", j.approveJob)
 	r.Post("/jobs/{id}/discard", j.discardJob)
 	r.Get("/applications", j.listApplications)
+	r.Patch("/applications/{id}", j.updateApplicationStatus) // CP10 producer
 }
 
 // ---- POST /api/jobs/manual -------------------------------------------------
@@ -450,6 +455,95 @@ func (j *jobsAPI) listApplications(w http.ResponseWriter, r *http.Request) {
 		items = append(items, item)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"applications": items})
+}
+
+// ---- PATCH /api/applications/:id (CP10 producer) -------------------------------
+
+// validApplicationStatuses is the CP5 pipeline enum.
+var validApplicationStatuses = map[string]bool{
+	"pending":   true,
+	"sent":      true,
+	"interview": true,
+	"rejected":  true,
+	"offer":     true,
+}
+
+// updateApplicationStatus changes the pipeline status of a candidacy and
+// publishes `application.status_changed` on the event bus (in-app bell +
+// future channels). Publish is best-effort: the status change always wins.
+func (j *jobsAPI) updateApplicationStatus(w http.ResponseWriter, r *http.Request) {
+	appID, ok := parseIDParam(w, r)
+	if !ok {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxSettingsBody)
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSON inválido"})
+		return
+	}
+	req.Status = strings.TrimSpace(req.Status)
+	if !validApplicationStatuses[req.Status] {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "status inválido — use pending, sent, interview, rejected ou offer",
+		})
+		return
+	}
+
+	ctx := r.Context()
+	app, err := j.repo.GetApplication(ctx, appID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "candidatura não encontrada"})
+		return
+	}
+	if err != nil {
+		j.logger.Error("fetch application failed", "id", appID, "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao consultar candidatura"})
+		return
+	}
+
+	if err := j.repo.UpdateApplicationStatus(ctx, appID, req.Status); err != nil {
+		j.logger.Error("update application status failed", "id", appID, "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao atualizar status da candidatura"})
+		return
+	}
+
+	jobLabel := fmt.Sprintf("Vaga #%d", app.JobID)
+	job, err := j.repo.GetJob(ctx, app.JobID)
+	if err == nil {
+		jobLabel = fmt.Sprintf("%s @ %s", job.Title, job.Company)
+	}
+
+	if app.Status != req.Status && j.bus != nil {
+		j.bus.Publish(events.Event{
+			Kind:     events.KindApplicationStatusChanged,
+			Severity: events.SeverityInfo,
+			Title:    "Candidatura atualizada",
+			Body:     fmt.Sprintf("%s: %s → %s", jobLabel, app.Status, req.Status),
+			Link:     "/applications",
+			Metadata: map[string]any{
+				"application_id": appID,
+				"job_id":         app.JobID,
+				"job_label":      jobLabel,
+				"from":           app.Status,
+				"to":             req.Status,
+			},
+		})
+	}
+
+	updated, err := j.repo.GetApplication(ctx, appID)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"id": appID, "status": req.Status})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":         updated.ID,
+		"job_id":     updated.JobID,
+		"status":     updated.Status,
+		"updated_at": updated.UpdatedAt,
+	})
 }
 
 // ---- helpers -------------------------------------------------------------------

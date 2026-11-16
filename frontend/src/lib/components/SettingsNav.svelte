@@ -1,6 +1,6 @@
 <script lang="ts">
 	interface Props {
-		active?: 'llm' | 'sources' | 'discovery';
+		active?: 'llm' | 'sources' | 'discovery' | 'notifications';
 	}
 	let { active = 'llm' }: Props = $props();
 </script>
@@ -14,6 +14,9 @@
 	</a>
 	<a href="/settings/discovery" class="nav-item {active === 'discovery' ? 'active' : ''}">
 		Busca & Filtros
+	</a>
+	<a href="/settings/notifications" class="nav-item {active === 'notifications' ? 'active' : ''}">
+		Notificações & Tarefas
 	</a>
 </nav>
 

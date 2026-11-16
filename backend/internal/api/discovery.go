@@ -12,12 +12,14 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/maicondmenezes/openjob/internal/discovery"
 	"github.com/maicondmenezes/openjob/internal/store"
+	"github.com/maicondmenezes/openjob/internal/tasks"
 )
 
 type discoveryAPI struct {
 	orchestrator *discovery.Orchestrator
 	repo         store.Repository
 	logger       *slog.Logger
+	pool         *tasks.Pool // CP10: keyword refresh enqueued as a task
 }
 
 func registerDiscovery(r chi.Router, d *discoveryAPI) {
@@ -76,7 +78,25 @@ func (d *discoveryAPI) updateConfig(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// refreshResumeKeywords re-extracts the resume keywords. Default flow (CP10):
+// enqueue an extract_resume_keywords task — the UI tracks it via /tasks (SSE).
+// `?sync=true` keeps the synchronous fallback so tests and impatient users
+// don't wait for the queue.
 func (d *discoveryAPI) refreshResumeKeywords(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("sync") != "true" && d.pool != nil {
+		task, err := d.pool.Enqueue(r.Context(), tasks.TypeExtractResumeKeywords, []byte(`{}`), 1)
+		if err != nil {
+			d.logger.Error("enqueue keyword refresh failed", "err", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao enfileirar extração de palavras-chave"})
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{
+			"task_id": task.ID,
+			"status":  task.Status,
+		})
+		return
+	}
+
 	keywords, err := d.orchestrator.RefreshResumeKeywords(r.Context())
 	if err != nil {
 		d.logger.Error("refresh resume keywords failed", "err", err)

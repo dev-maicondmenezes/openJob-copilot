@@ -3,7 +3,9 @@ package discovery
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/maicondmenezes/openjob/internal/store"
@@ -15,8 +17,8 @@ type mockAdapter struct {
 	err  error
 }
 
-func (m *mockAdapter) Slug() string                   { return m.slug }
-func (m *mockAdapter) Name() string                   { return "Mock " + m.slug }
+func (m *mockAdapter) Slug() string { return m.slug }
+func (m *mockAdapter) Name() string { return "Mock " + m.slug }
 func (m *mockAdapter) DefaultCapabilities() Capabilities {
 	return Capabilities{SupportsKeywordSearch: true}
 }
@@ -167,6 +169,94 @@ func TestOrchestratorPipelineAndDedup(t *testing.T) {
 	if stats2.Duplicates != 1 {
 		t.Errorf("run 2 duplicates = %d, want 1", stats2.Duplicates)
 	}
+}
+
+// fakeEnqueuer records EnqueueScoreJob calls (CP10: discovery → queue).
+type fakeEnqueuer struct {
+	mu     sync.Mutex
+	jobIDs []int64
+	err    error
+}
+
+func (f *fakeEnqueuer) EnqueueScoreJob(_ context.Context, jobID int64, _ int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return f.err
+	}
+	f.jobIDs = append(f.jobIDs, jobID)
+	return nil
+}
+
+// TestOrchestratorEnqueuesScoring verifies the CP10 migration: with an
+// enqueuer wired, discovery enqueues the new jobs for async scoring (up to
+// maxBatchScoringPerRun, prioritized by resume matches) instead of scoring
+// inline.
+func TestOrchestratorEnqueuesScoring(t *testing.T) {
+	repo := openTestStore(t)
+	ctx := context.Background()
+
+	_, err := repo.SaveCurriculum(ctx, store.Curriculum{
+		ContentMD: "Go, Docker, Kubernetes",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	registry := NewRegistry()
+	var jobs []DiscoveredJob
+	for i := 1; i <= 3; i++ {
+		jobs = append(jobs, DiscoveredJob{
+			Title:       fmt.Sprintf("Go Developer %d", i),
+			Company:     "Corp",
+			URL:         fmt.Sprintf("https://example.com/job/%d", i),
+			Description: "Go backend with Docker and Kubernetes.",
+			Source:      "test-src",
+		})
+	}
+	registry.Register(&mockAdapter{slug: "test-src", jobs: jobs})
+
+	for _, s := range mustListSources(t, repo) {
+		_ = repo.DeleteSource(ctx, s.ID)
+	}
+	if err := repo.CreateSource(ctx, store.Source{
+		ID: "test-src", Name: "Test", Adapter: "test-src", Enabled: true, Priority: 1,
+		Capabilities: `{"supports_keyword_search":true}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	orch := NewOrchestrator(repo, registry, nil, nil, nil)
+	_ = orch.SaveConfig(ctx, Config{Keywords: []string{"go"}, ResumeFilter: ResumeFilterSettings{Enabled: false}})
+
+	enq := &fakeEnqueuer{}
+	orch.SetScoreEnqueuer(enq)
+
+	_, stats, err := orch.Discover(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.NewJobs != 3 {
+		t.Fatalf("new_jobs = %d, want 3", stats.NewJobs)
+	}
+	if stats.Scored != 3 {
+		t.Fatalf("queued scoring = %d, want 3", stats.Scored)
+	}
+	enq.mu.Lock()
+	ids := enq.jobIDs
+	enq.mu.Unlock()
+	if len(ids) != 3 {
+		t.Fatalf("enqueued %d jobs, want 3", len(ids))
+	}
+}
+
+func mustListSources(t *testing.T, repo store.Repository) []store.Source {
+	t.Helper()
+	sources, err := repo.ListSources(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sources
 }
 
 func TestOrchestratorFaultTolerance(t *testing.T) {

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/maicondmenezes/openjob/internal/events"
 	"github.com/maicondmenezes/openjob/internal/llm"
 	"github.com/maicondmenezes/openjob/internal/score"
 	"github.com/maicondmenezes/openjob/internal/store"
@@ -24,13 +25,17 @@ const (
 )
 
 // Orchestrator coordinates vacancy discovery across all enabled sources,
-// executing keyword and resume filters, deduplicating, and batch scoring.
+// executing keyword and resume filters, deduplicating, and queueing scoring
+// (CP10: batch scoring moved to the tasks queue; inline only as a fallback
+// when no enqueuer is wired, e.g. unit tests).
 type Orchestrator struct {
 	repo       store.Repository
 	registry   *Registry
 	masterKey  []byte
 	llmClient  llm.Client
 	logger     *slog.Logger
+	enqueuer   ScoreEnqueuer  // optional (nil = legacy inline scoring)
+	publisher  EventPublisher // optional (nil = no events)
 
 	mu           sync.Mutex
 	running      bool
@@ -39,6 +44,18 @@ type Orchestrator struct {
 	tickerMu     sync.Mutex
 	ticker       *time.Ticker
 	tickerStop   chan struct{}
+}
+
+// ScoreEnqueuer receives the new jobs of a run for asynchronous scoring —
+// implemented by the tasks queue (Pool) in production (docs/adr/0010).
+type ScoreEnqueuer interface {
+	EnqueueScoreJob(ctx context.Context, jobID int64, priority int) error
+}
+
+// EventPublisher receives discovery lifecycle events — implemented by the
+// in-process event bus (docs/adr/0009).
+type EventPublisher interface {
+	Publish(e events.Event)
 }
 
 func NewOrchestrator(repo store.Repository, registry *Registry, masterKey []byte, llmClient llm.Client, logger *slog.Logger) *Orchestrator {
@@ -60,6 +77,25 @@ func NewOrchestrator(repo store.Repository, registry *Registry, masterKey []byte
 // Registry returns the underlying adapter registry.
 func (o *Orchestrator) Registry() *Registry {
 	return o.registry
+}
+
+// SetScoreEnqueuer wires the async scoring queue (CP10). When nil, scoring
+// stays inline (legacy path used by unit tests).
+func (o *Orchestrator) SetScoreEnqueuer(e ScoreEnqueuer) {
+	o.enqueuer = e
+}
+
+// SetPublisher wires the event bus (CP10). Best-effort: events never change
+// the run outcome.
+func (o *Orchestrator) SetPublisher(p EventPublisher) {
+	o.publisher = p
+}
+
+// publish emits an event to the bus, ignoring failures (best-effort contract).
+func (o *Orchestrator) publish(e events.Event) {
+	if o.publisher != nil {
+		o.publisher.Publish(e)
+	}
 }
 
 // IsRunning reports whether a discovery run is actively executing.
@@ -221,6 +257,32 @@ func (o *Orchestrator) Discover(ctx context.Context) (int64, RunStats, error) {
 		ErrorMessage: errMsg,
 	})
 
+	// CP10: run lifecycle events feed the in-app bell (and future channels).
+	if runErr != nil {
+		o.publish(events.Event{
+			Kind:     events.KindDiscoveryFailed,
+			Severity: events.SeverityError,
+			Title:    "Busca de vagas falhou",
+			Body:     runErr.Error(),
+			Link:     "/jobs",
+			Metadata: map[string]any{"run_id": runID},
+		})
+	} else {
+		o.publish(events.Event{
+			Kind:     events.KindDiscoveryCompleted,
+			Severity: events.SeveritySuccess,
+			Title:    "Busca de vagas concluída",
+			Link:     "/jobs",
+			Metadata: map[string]any{
+				"run_id":         runID,
+				"fetched":        stats.Fetched,
+				"new_jobs":       stats.NewJobs,
+				"queued_scoring": stats.Scored,
+				"errors":         stats.Errors,
+			},
+		})
+	}
+
 	return runID, stats, runErr
 }
 
@@ -322,6 +384,17 @@ func (o *Orchestrator) runPipeline(ctx context.Context, runID int64) (RunStats, 
 			o.logger.Error("orchestrator: source fetch failed", "source", src.ID, "err", fetchErr)
 			stat.Error = fetchErr.Error()
 			stats.Errors = append(stats.Errors, errMsg)
+			// CP10: per-source failure event — deduplicated by the notifier so
+			// repeated ticks do not spam the bell.
+			o.publish(events.Event{
+				Kind:     events.KindSourceFetchFailed,
+				Severity: events.SeverityWarning,
+				Title:    "Falha em fonte de vagas",
+				Body:     fmt.Sprintf("%s: %v", src.Name, fetchErr),
+				Link:     "/settings/sources",
+				DedupKey: "source_error:" + src.ID,
+				Metadata: map[string]any{"source": src.ID, "adapter": src.Adapter},
+			})
 		} else {
 			allFetched = append(allFetched, jobs...)
 		}
@@ -395,8 +468,35 @@ func (o *Orchestrator) runPipeline(ctx context.Context, runID int64) (RunStats, 
 		newJobsToScore = newJobsToScore[:maxBatchScoringPerRun]
 	}
 
+	// 4. Scoring (CP10): enqueue into the tasks queue, prioritized by resume
+	// match count (lower priority value runs first). Legacy inline scoring
+	// remains only when no queue is wired (unit tests).
+	if o.enqueuer != nil {
+		enqueued := 0
+		for _, j := range newJobsToScore {
+			prio := scoringPriority(j.ResumeMatchesCount)
+			if err := o.enqueuer.EnqueueScoreJob(ctx, j.ID, prio); err != nil {
+				o.logger.Error("orchestrator: enqueue score failed", "job_id", j.ID, "err", err)
+				continue
+			}
+			enqueued++
+		}
+		stats.Scored = enqueued
+		return stats, nil
+	}
+
 	stats.Scored = o.batchScore(ctx, newJobsToScore)
 	return stats, nil
+}
+
+// scoringPriority maps the resume match count to the queue priority: more
+// matches → lower value → scored earlier (preserves the CP6 ordering).
+func scoringPriority(matches int) int {
+	prio := 100 - matches
+	if prio < 1 {
+		prio = 1
+	}
+	return prio
 }
 
 func (o *Orchestrator) batchScore(ctx context.Context, jobs []jobToScore) int {

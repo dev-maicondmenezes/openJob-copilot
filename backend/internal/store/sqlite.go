@@ -587,5 +587,10 @@ func nullableTime(t *time.Time) any {
 }
 
 func parseUTC(v string) (time.Time, error) {
-	return time.Parse(time.RFC3339, v)
+	if t, err := time.Parse(time.RFC3339, v); err == nil {
+		return t, nil
+	}
+	// modernc binds time.Time values using Go's String() layout; accept it so
+	// rows written that way still parse deterministically.
+	return time.Parse("2006-01-02 15:04:05.999999999 -0700 MST", v)
 }

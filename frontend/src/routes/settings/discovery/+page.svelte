@@ -29,22 +29,26 @@
 	let refreshingResume = $state(false);
 	let status: { kind: 'success' | 'error'; text: string } | null = $state(null);
 
+	async function loadConfig(): Promise<void> {
+		const res = await fetch('/api/settings/discovery');
+		if (res.ok) {
+			const data: DiscoverySettings = await res.json();
+			keywords = data.keywords ?? [];
+			if (data.resume_filter) {
+				resumeFilterEnabled = data.resume_filter.enabled ?? true;
+				minMatches = data.resume_filter.min_matches ?? 3;
+				matchMode = data.resume_filter.match_mode ?? 'any';
+			}
+			discoveryInterval = data.discovery_interval ?? 'off';
+			resumeKeywords = data.resume_keywords ?? [];
+		} else {
+			status = { kind: 'error', text: 'Falha ao carregar configurações de busca.' };
+		}
+	}
+
 	onMount(async () => {
 		try {
-			const res = await fetch('/api/settings/discovery');
-			if (res.ok) {
-				const data: DiscoverySettings = await res.json();
-				keywords = data.keywords ?? [];
-				if (data.resume_filter) {
-					resumeFilterEnabled = data.resume_filter.enabled ?? true;
-					minMatches = data.resume_filter.min_matches ?? 3;
-					matchMode = data.resume_filter.match_mode ?? 'any';
-				}
-				discoveryInterval = data.discovery_interval ?? 'off';
-				resumeKeywords = data.resume_keywords ?? [];
-			} else {
-				status = { kind: 'error', text: 'Falha ao carregar configurações de busca.' };
-			}
+			await loadConfig();
 		} catch {
 			status = { kind: 'error', text: 'Falha de rede ao carregar configurações.' };
 		} finally {
@@ -110,15 +114,40 @@
 		refreshingResume = true;
 		status = null;
 		try {
+			// CP10: o refresh virou tarefa assíncrona na fila (202 + task_id);
+			// acompanhamos a tarefa em /api/tasks/{id} até ela terminar.
 			const res = await fetch('/api/settings/discovery/resume-keywords/refresh', { method: 'POST' });
-			if (res.ok) {
-				const body = await res.json();
+			if (!res.ok) {
+				const err = await res.json().catch(() => ({}));
+				status = { kind: 'error', text: err.error ?? 'Falha ao enfileirar extração de palavras.' };
+				refreshingResume = false;
+				return;
+			}
+			const body = await res.json();
+			const taskId = body.task_id as string | undefined;
+			if (!taskId) {
+				// fallback síncrono (resposta legada)
 				resumeKeywords = body.resume_keywords ?? [];
 				status = { kind: 'success', text: `Extração concluída: ${resumeKeywords.length} palavras-chave identificadas.` };
-			} else {
-				const err = await res.json().catch(() => ({}));
-				status = { kind: 'error', text: err.error ?? 'Falha ao extrair palavras do currículo.' };
+				return;
 			}
+
+			for (let i = 0; i < 100; i++) {
+				await new Promise((r) => setTimeout(r, 300));
+				const tRes = await fetch(`/api/tasks/${taskId}`);
+				if (!tRes.ok) continue;
+				const task = await tRes.json();
+				if (task.status === 'done') {
+					await loadConfig();
+					status = { kind: 'success', text: `Extração concluída: ${(task.result?.count ?? 0)} palavras-chave identificadas. Acompanhe em /tasks.` };
+					return;
+				}
+				if (task.status === 'failed' || task.status === 'cancelled') {
+					status = { kind: 'error', text: task.error ?? 'Extração de palavras-chave falhou.' };
+					return;
+				}
+			}
+			status = { kind: 'error', text: 'Extração demorou demais — acompanhe em /tasks.' };
 		} catch {
 			status = { kind: 'error', text: 'Falha de rede ao extrair palavras do currículo.' };
 		} finally {
