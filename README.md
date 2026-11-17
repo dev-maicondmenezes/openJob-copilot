@@ -184,6 +184,9 @@ são servidos pelo fallback da SPA.
 | 1 | Fundação (Go + chi + Docker + mDNS) | ✅ este release |
 | 2 | SPA SvelteKit + PWA | ✅ este release — [plano](docs/plan/02-spa-pwa.md) |
 | 3 | SQLite + BYOK | ✅ este release — [plano](docs/plan/03-sqlite-byok.md) |
-| 4–9 | Currículo/tailoring, vagas, discovery, Telegram, validação, ATS | ⏳ [plano](docs/plan/README.md) |
+| 4–9 | Currículo/tailoring, vagas, discovery, Telegram, validação, ATS | ✅ este release — [plano](docs/plan/README.md) |
+| 10 | Notificações in-app + fila assíncrona de tarefas | ✅ este release — [plano](docs/plan/10-notificacoes-in-app.md) |
+| 11 | Pacote/release (wizard TUI + embed) | ✅ este release — [plano](docs/plan/11-package-release.md) |
+| 12 | Design system + responsividade multi-dispositivo | ✅ este release — [plano](docs/plan/12-design.md) |
 
 Melhorias pós-checkpoints (ex.: configuração de IA mais amigável, presets de provedores, multi-modelos): [`docs/backlog.md`](docs/backlog.md).

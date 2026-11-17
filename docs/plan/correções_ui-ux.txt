@@ -1,0 +1,55 @@
+o espaçamento entre alguns componentes da UI está muito curto use um token de espaçamento maior para melhorar a legibilidade e a estética da interface. Considere revisar os valores de padding e margin nos elementos para garantir que haja espaço suficiente entre eles, evitando que fiquem visualmente apertados. Os componentes com este comportamento são
+
+/jobs:
+
+card: Descoberta Automática de Vagas
+card: Nova Vaga
+list-items da list: Vagas cadastradas
+
+/settings/sources:
+
+list-items da list: Fontes Configuradas
+
+/settings/discovery:
+card:Palavras-chave de Busca
+card:Filtro de Aderência ao Currículo
+card:Busca Periódica Automática (Ticker)
+button: Salvar Configurações
+
+/settings/notifications:
+button: Salvar
+
+itens do pop-up de notificaões
+
+/tasks:
+item-list da list: Tarefas de IA
+
+UX:
+
+/jobs:
+card:nova Vaga deve virar uma popup acionada pelo botão "Nova Vaga" que deve ser inserido ao lado de 'Buscar Agora' com cor secundária e ícone de adição.
+os botoões de ação de cada item da lista de vagas cadastradas devem ser exibidos em uma única linhas e devem ser um pouco menores, mantendo a legibilidade e a facilidade de interação. Considere ajustar o tamanho dos ícones e o espaçamento entre eles para otimizar o uso do espaço horizontal.
+ao clicar em 'aprovar' ative apenas um toast de sucesso ou falha informando o usuário sobre o resultado da ação, sem redirecionar para outra página ou atualizar a lista de vagas. Isso proporciona uma experiência mais fluida e evita interrupções desnecessárias no fluxo de trabalho do usuário.
+
+/applications:
+cards da lista de candidaturas devem ser mais curtos e ocupar menos espaço vertical, mantendo a legibilidade das informações essenciais. Considere reduzir o padding interno e ajustar a altura mínima dos cards para otimizar o uso do espaço na tela.
+os cards também devem ser clicaveis e aceitar ações de drag and drop para facilitar a organização das candidaturas.
+
+/curriculum:
+card: Adaptação com IA (Tailoring) deveria possuir um seletor para permitir selecionar uma entre as vagas já cadastradas filtrando apenas as vagas com status 'pendente'. possibilitando que o usuário escolha a vaga específica para a qual deseja adaptar o currículo. Além disso, o card deve exibir informações resumidas sobre a vaga selecionada, como título e empresa, para fornecer contexto ao usuário durante o processo de adaptação. 
+
+/settings:
+
+buttons: Fonte de Vagas, Busca & Filtros e Notificações & Tarefas não devem existir, apenas as abas correspondentes.
+
+modal de notificações:
+'Marcar Todas Como Lidas' e 'Ver Todas' devem ser um botão de ação secundária, com cor neutra e ícone de marcação apenas e os textos atuais exibido como tooltip ao passar o mouse sobre os botões. Isso ajuda a reduzir a poluição visual e mantém a interface mais limpa, enquanto ainda fornece acesso rápido às ações importantes.
+
+/notifications:
+buttons: 'marcar Todas Como Lidas' e 'limpar lidas' devem ser alinhadas a direita e exibidas como ícones com tooltip no mesmo nível dos filtros 'Tipo', 'Severidade' e 'Somente não Lidas', mantendo a consistência visual com o modal de notificações. Isso melhora a estética da interface e facilita a interação do usuário com as ações de gerenciamento de notificações.
+
+sidebar:
+remover 'Notificações'
+posicionar 'Config' no mesmo separador de 'Atalhos' e reposicionar 'Atalhos' removendo da sidebar e colocando em local mais discreto e conveniente, como no canto superior direito da tela. Isso ajuda a reduzir a quantidade de itens na barra lateral e melhora a organização da interface, tornando-a mais intuitiva e fácil de navegar.
+
+em viewports de dispositivos moveis a barra inferior de icones que substitui a sidebar e os ícones superiores de notificações e buscas devem ser fixos como header e footer, garantindo que o usuário tenha acesso rápido às principais funcionalidades da aplicação sem precisar rolar a tela. Além disso, considere aumentar o tamanho dos ícones e o espaçamento entre eles para facilitar a interação em telas menores, melhorando a usabilidade geral da interface em dispositivos móveis.
