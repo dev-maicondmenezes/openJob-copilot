@@ -120,13 +120,79 @@
 
 ---
 
-## Discovery & Sources (Checkpoint 6)
+## Discovery & Sources (Checkpoint 6)
 
-### UI Revision for Checkpoint 6
+### UI Revision for Checkpoint 6
 
 - **Status:** proposto
 - **Esforço:** médio
 - **Descrição:** Alinhar a UI da descoberta automática, gerenciamento de fontes e páginas de settings com o design system do projeto (navegação em abas, cards, badges, modais, foco acessível). Incluir polimento visual, layout responsivo e revisão de design.
+
+---
+
+## Refatoração de Backend
+
+### B11 — Refatoração do backend: eliminar IA de features determinísticas
+
+- **Status:** proposto
+- **Esforço:** médio–grande (backend + testes + remoção de código LLM)
+- **Descrição:** restringir o uso de LLM no openJob às três features que exigem **geração de linguagem natural**:
+  1. Adaptação de currículo (tailoring)
+  2. Criação de carta de apresentação
+  3. Análise do currículo (feedback qualitativo)
+
+  As demais features que hoje dependem de LLM — **score de fit**, **extração de keywords do currículo** e **filtro por currículo** — passam a usar **heurísticas determinísticas** baseadas em algoritmos consolidados de recuperação de informação e processamento de texto.
+
+  **Justificativa:**
+  - **Determinismo e reprodutibilidade:** a mesma vaga e o mesmo currículo produzem sempre o mesmo score, o que é essencial para auditoria, testes e confiança do usuário.
+  - **Custo zero de IA:** elimina chamadas ao provedor LLM nessas etapas, reduzindo custo e latência.
+  - **Explicabilidade:** um score baseado em BM25 ou TF-IDF pode ser decomposto termo a termo (“esta vaga pontuou alto porque contém ‘Kubernetes’, ‘Go’ e ‘AWS’, que estão no seu currículo”).
+  - **Independência de provedor:** o app deixa de depender de uma chave de IA válida para funcionar no fluxo principal de descoberta e triagem.
+
+  **Escopo da refatoração:**
+
+  | Feature atual (LLM) | Substituta determinística | Estado da arte |
+  |---|---|---|
+  | `score_fit` (CP5/CP6/CP10) | **BM25 (Okapi)** entre currículo e descrição da vaga | BM25 é o algoritmo de referência em *resume–job matching*; supera TF-IDF por lidar com saturação de frequência e normalização por comprimento de documento. Há implementações em Go maduras: `crawlab-team/bm25`, `JLugagne/bm25`, `richardwooding/bm25`. |
+  | Extração de keywords do currículo (CP6) | **YAKE** (ou RAKE como fallback) | YAKE é um extrator estatístico não supervisionado, sem treinamento, adequado a textos curtos e multilíngue (inclui PT e ES). RAKE é mais simples e bom para frases multi-palavra. Ambos têm implementações em Go (`LIAAD/yake`, `afjoseph/RAKE.Go`). |
+  | Filtro por currículo (CP6) | **Similaridade de cosseno com TF-IDF** ou **BM25** com limiar configurável | TF-IDF + cosine similarity é a abordagem clássica e transparente para medir alinhamento entre currículo e vaga. O limiar (`min_matches`) vira um corte objetivo no score. |
+
+  **Detalhes de implementação sugeridos:**
+  - **BM25:** usar `Okapi BM25` com parâmetros padrão (`k1=1.2`, `b=0.75`). O “documento” é a descrição da vaga; a “query” é o texto do currículo (ou as keywords extraídas dele). O score normalizado (0–100) alimenta o `score_fit`.
+  - **YAKE:** extrair top-N termos do currículo (N configurável, default 20). Esses termos substituem as `resume_keywords` que hoje podem vir do LLM. YAKE não depende de idioma — funciona para currículos em PT, EN e ES.
+  - **Filtro por currículo:** usar o **mesmo** score BM25 como base. O filtro binário (`passa/não passa`) aplica um limiar (`min_matches` convertido para um score mínimo). Isso unifica score e filtro em um único pipeline determinístico.
+  - **Remoção de código LLM:** eliminar as chamadas ao provedor LLM nos handlers `score_job` (CP10) e `extract_resume_keywords` (CP6). O handler `score_job` passa a ser uma função pura (sem I/O de rede), o que **elimina a necessidade de rate limiting por provedor** nessa tarefa.
+  - **Compatibilidade:** manter os mesmos endpoints e contratos de API; apenas o *backend* de cálculo muda. O `score_fit` continua sendo um número 0–100; o filtro por currículo continua respeitando `min_matches` e `match_mode`.
+
+  **O que NÃO muda (IA preservada):**
+  - **Adaptação de currículo (CP4):** continua usando LLM. É geração de linguagem: reescrever bullets, adaptar tom, destacar experiências relevantes para uma vaga específica.
+  - **Carta de apresentação (CP4):** continua usando LLM. É geração de texto original.
+  - **Análise do currículo (CP4):** continua usando LLM. É feedback qualitativo (“seu resumo está genérico”, “faltam métricas de impacto”) que exige compreensão semântica profunda.
+
+  **Vantagens esperadas:**
+  - Score de fit determinístico e auditável.
+  - Redução de custo e latência no discovery e no scoring em batch.
+  - O app funciona para triagem mesmo sem chave de IA configurada (a chave passa a ser necessária apenas para tailoring/carta/análise).
+  - Eliminação de uma classe de falhas (rate limit do provedor, timeout, resposta malformada do LLM) no caminho crítico de descoberta.
+
+  **Riscos e mitigações:**
+  - **Perda de nuance semântica:** BM25/TF-IDF são lexicais; não capturam sinônimos (“Kubernetes” vs “K8s”). **Mitigação:** enriquecer o pipeline com uma **taxonomia de skills** (ESCO/O*NET) ou um dicionário de sinônimos configurável, como fase 2. Nesta fase, o determinismo e a explicabilidade são priorizados sobre a cobertura semântica.
+  - **Qualidade do YAKE em currículos longos:** YAKE é mais eficaz em textos curtos. **Mitigação:** extrair keywords por seção do currículo (experiência, habilidades) em vez do texto inteiro, e usar RAKE como fallback para frases multi-palavra.
+  - **Calibração do limiar do filtro:** o `min_matches` atual (contagem de termos) precisa ser convertido para um limiar de score BM25. **Mitigação:** expor o limiar como um valor calibrável na UI (`/settings/discovery`) e documentar a equivalência.
+
+- **Aceite:**
+  - `score_fit` é calculado sem nenhuma chamada de rede a provedor LLM; mesma entrada → mesma saída.
+  - Extração de `resume_keywords` funciona offline e em PT-BR, EN-US e ES-419.
+  - Filtro por currículo usa score determinístico com limiar configurável.
+  - Nenhuma chamada LLM é feita nos handlers `score_job` e `extract_resume_keywords` (verificável por log/mock).
+  - Tempo de resposta do scoring < 50 ms por vaga (vs. segundos com LLM).
+  - Funcionalidade preservada: tailoring, carta e análise continuam usando LLM normalmente.
+
+- **Depende de:** nada; a base de `jobs` e `applications` já existe. Pode ser feito em paralelo ao CP16 (feed) se a prioridade for reduzir custo antes da reformulação visual.
+
+- **Origem:** análise de arquitetura + diretriz de produto (“IA só onde agrega valor de geração”).
+
+---
 
 ## Priorização sugerida (valor × esforço)
 
