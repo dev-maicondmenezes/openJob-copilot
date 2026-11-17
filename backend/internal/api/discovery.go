@@ -57,7 +57,7 @@ func (d *discoveryAPI) updateConfig(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSettingsBody)
 	var req discovery.Config
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSON inválido"})
+		writeAPIError(w, http.StatusBadRequest, "invalid_json", "invalid JSON", nil)
 		return
 	}
 
@@ -181,7 +181,7 @@ func (d *discoveryAPI) getDiscoveryRun(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id inválido"})
+		writeAPIError(w, http.StatusBadRequest, "invalid_id", "invalid id", nil)
 		return
 	}
 

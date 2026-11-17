@@ -1,23 +1,24 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
 	import Card from '#lib/ui/Card.svelte';
 	import Icon from '#lib/ui/Icon.svelte';
 	import EmptyState from '#lib/ui/EmptyState.svelte';
 
-	const shortcuts = [
-		{ href: '/curriculum', title: 'Currículo', description: 'Base e versões adaptadas', icon: 'file' },
-		{ href: '/jobs', title: 'Vagas', description: 'Adicionar e acompanhar vagas', icon: 'briefcase' },
-		{ href: '/applications', title: 'Candidaturas', description: 'Status de cada aplicação', icon: 'clipboard' },
-		{ href: '/settings', title: 'Configurações', description: 'Chaves e preferências', icon: 'settings' }
-	];
+	const shortcuts = $derived([
+		{ href: '/curriculum', title: t('common.curriculum'), description: t('home.shortcuts.curriculum_desc'), icon: 'file' },
+		{ href: '/jobs', title: t('common.jobs'), description: t('home.shortcuts.jobs_desc'), icon: 'briefcase' },
+		{ href: '/applications', title: t('common.applications'), description: t('home.shortcuts.applications_desc'), icon: 'clipboard' },
+		{ href: '/settings', title: t('common.settings'), description: t('home.shortcuts.settings_desc'), icon: 'settings' }
+	]);
 </script>
 
 <svelte:head>
-	<title>openJob</title>
-	<meta name="description" content="Assistente local-first para a busca de emprego" />
+	<title>{t('common.app_name')}</title>
+	<meta name="description" content={t('home.meta_description')} />
 </svelte:head>
 
-<!-- Título e tagline agora vivem no header global do shell. -->
-<h1 class="visually-hidden">Início</h1>
+<!-- {t('jobs.form.title')} e tagline agora vivem no header global do shell. -->
+<h1 class="visually-hidden">{t('common.home')}</h1>
 
 <div class="grid grid-2 app-links">
 	{#each shortcuts as item (item.href)}
@@ -34,11 +35,11 @@
 	{/each}
 </div>
 
-<Card title="Dashboard" subtitle="Resumo do progresso das candidaturas" class="dashboard-stub">
+<Card title={t('home.dashboard')} subtitle={t('home.dashboard_desc')} class="dashboard-stub">
 	<EmptyState
 		icon="sparkles"
-		title="Seu resumo chega em breve"
-		description="Por enquanto, use os atalhos acima para navegar pelas seções do openJob."
+		title={t('home.coming_soon')}
+		description={t('home.coming_soon_desc')}
 	/>
 </Card>
 

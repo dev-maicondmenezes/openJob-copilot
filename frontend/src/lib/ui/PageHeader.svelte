@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
 	import type { Snippet } from 'svelte';
 	import Icon from './Icon.svelte';
 
@@ -19,7 +20,7 @@
 
 <header class="page-header">
 	{#if breadcrumb.length > 0}
-		<nav class="breadcrumb" aria-label="Trilha de navegação">
+		<nav class="breadcrumb" aria-label={t('nav.breadcrumb')}>
 			{#each breadcrumb as crumb, i (crumb.label)}
 				{#if i > 0}
 					<Icon name="chevron-right" size={16} />

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
+	import { errorText } from '#lib/i18n/errors.js';
 	import { onMount } from 'svelte';
 	import SettingsNav from '#lib/components/SettingsNav.svelte';
 	import PageHeader from '#lib/ui/PageHeader.svelte';
@@ -52,7 +54,7 @@
 			discoveryInterval = data.discovery_interval ?? 'off';
 			resumeKeywords = data.resume_keywords ?? [];
 		} else {
-			status = { kind: 'error', text: 'Falha ao carregar configurações de busca.' };
+			status = { kind: 'error', text: t('discovery.error.load') };
 		}
 	}
 
@@ -60,7 +62,7 @@
 		try {
 			await loadConfig();
 		} catch {
-			status = { kind: 'error', text: 'Falha de rede ao carregar configurações.' };
+			status = { kind: 'error', text: t('discovery.error.load_network') };
 		} finally {
 			loading = false;
 		}
@@ -70,11 +72,11 @@
 		const term = newKeyword.trim();
 		if (!term) return;
 		if (keywords.length >= 5) {
-			keywordError = 'Limite máximo de 5 palavras-chave atingido.';
+			keywordError = t('discovery.error.keyword_limit');
 			return;
 		}
 		if (keywords.some((k) => k.toLowerCase() === term.toLowerCase())) {
-			keywordError = `A palavra-chave "${term}" já foi adicionada.`;
+			keywordError = t('discovery.error.keyword_duplicate', { term });
 			return;
 		}
 		keywords = [...keywords, term];
@@ -110,13 +112,13 @@
 			if (res.ok) {
 				const updated: DiscoverySettings = await res.json();
 				keywords = updated.keywords ?? [];
-				status = { kind: 'success', text: 'Configurações de busca salvas com sucesso!' };
+				status = { kind: 'success', text: t('discovery.error.saved') };
 			} else {
 				const err = await res.json().catch(() => ({}));
-				status = { kind: 'error', text: err.error ?? 'Falha ao salvar configurações.' };
+				status = { kind: 'error', text: errorText(err, t('discovery.error.save')) };
 			}
 		} catch {
-			status = { kind: 'error', text: 'Falha de rede ao salvar configurações.' };
+			status = { kind: 'error', text: t('discovery.error.save_network') };
 		} finally {
 			saving = false;
 		}
@@ -129,14 +131,14 @@
 			const res = await fetch('/api/settings/discovery/resume-keywords/refresh', { method: 'POST' });
 			if (!res.ok) {
 				const err = await res.json().catch(() => ({}));
-				status = { kind: 'error', text: err.error ?? 'Falha ao enfileirar extração de palavras.' };
+				status = { kind: 'error', text: errorText(err, t('discovery.error.enqueue')) };
 				return;
 			}
 			const body = await res.json();
 			const taskId = body.task_id as string | undefined;
 			if (!taskId) {
 				resumeKeywords = body.resume_keywords ?? [];
-				status = { kind: 'success', text: `Extração concluída: ${resumeKeywords.length} palavras-chave identificadas.` };
+				status = { kind: 'success', text: t('discovery.error.extract_done', { count: resumeKeywords.length }) };
 				return;
 			}
 			for (let i = 0; i < 100; i++) {
@@ -146,17 +148,17 @@
 				const task = await tRes.json();
 				if (task.status === 'done') {
 					await loadConfig();
-					status = { kind: 'success', text: `Extração concluída: ${task.result?.count ?? 0} palavras-chave identificadas. Acompanhe em /tasks.` };
+					status = { kind: 'success', text: t('discovery.error.extract_done_tasks', { count: task.result?.count ?? 0 }) };
 					return;
 				}
 				if (task.status === 'failed' || task.status === 'cancelled') {
-					status = { kind: 'error', text: task.error ?? 'Extração de palavras-chave falhou.' };
+					status = { kind: 'error', text: errorText(task, t('discovery.error.extract_failed')) };
 					return;
 				}
 			}
-			status = { kind: 'error', text: 'Extração demorou demais — acompanhe em /tasks.' };
+			status = { kind: 'error', text: t('discovery.error.extract_timeout') };
 		} catch {
-			status = { kind: 'error', text: 'Falha de rede ao extrair palavras do currículo.' };
+			status = { kind: 'error', text: t('discovery.error.extract_network') };
 		} finally {
 			refreshingResume = false;
 		}
@@ -164,13 +166,13 @@
 </script>
 
 <svelte:head>
-	<title>Busca & Filtros · openJob</title>
+	<title>{t('discovery.meta_title')}</title>
 </svelte:head>
 
 <PageHeader
-	title="Configurações"
-	subtitle="Parâmetros da descoberta automática de vagas e filtragem prévia por currículo."
-	breadcrumb={[{ label: 'Início', href: '/' }, { label: 'Configurações', href: '/settings' }, { label: 'Busca & Filtros' }]}
+	title={t('common.settings')}
+	subtitle={t('discovery.subtitle')}
+	breadcrumb={[{ label: t('common.home'), href: '/' }, { label: t('common.settings'), href: '/settings' }, { label: t('nav.settings_discovery') }]}
 />
 
 <SettingsNav active="discovery" />
@@ -180,24 +182,24 @@
 {/if}
 
 {#if loading}
-	<Card><p class="hint">Carregando configurações…</p></Card>
+	<Card><p class="hint">{t('discovery.loading')}</p></Card>
 {:else}
 	<form onsubmit={(e) => { e.preventDefault(); saveSettings(); }} class="discovery-form">
-		<Card title="Palavras-chave de Busca" class="spacious-card" subtitle="Termos consultados nas APIs e aplicados como filtro sobre título e descrição das vagas.">
+		<Card title={t('discovery.card.keywords')} class="spacious-card" subtitle={t('discovery.card.keywords_subtitle')}>
 			{#snippet actions()}
-				<Badge tone={keywords.length === 5 ? 'warning' : 'neutral'}>{keywords.length}/5 termos</Badge>
+				<Badge tone={keywords.length === 5 ? 'warning' : 'neutral'}>{t('discovery.keywords.count', { count: keywords.length })}</Badge>
 			{/snippet}
-			<Field label="Adicionar termo" for="new_keyword" error={keywordError}>
+			<Field label={t('discovery.keywords.add')} for="new_keyword" error={keywordError}>
 				<div class="keyword-row">
-					<Input
+					<input
 						id="new_keyword"
 						bind:value={newKeyword}
 						disabled={keywords.length >= 5}
-						placeholder={keywords.length >= 5 ? 'Limite de 5 termos atingido' : 'Ex: Golang, Backend, Remote…'}
+						placeholder={keywords.length >= 5 ? t('discovery.keywords.limit') : t('discovery.keywords.placeholder')}
 						onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addKeyword(); } }}
 					/>
 					<Button type="button" variant="secondary" disabled={keywords.length >= 5 || !newKeyword.trim()} onclick={addKeyword}>
-						+ Adicionar
+						{t('discovery.keywords.add_button')}
 					</Button>
 				</div>
 			</Field>
@@ -205,32 +207,32 @@
 				{#each keywords as keyword, i (keyword)}
 					<span class="chip">
 						{keyword}
-						<IconButton icon="x" label={`Remover ${keyword}`} variant="ghost" size="sm" onclick={() => removeKeyword(i)} />
+						<IconButton icon="x" label={`${t('common.remove')} ${keyword}`} variant="ghost" size="sm" onclick={() => removeKeyword(i)} />
 					</span>
 				{:else}
-					<p class="hint">Nenhum termo configurado — todas as vagas retornadas pelas fontes serão avaliadas.</p>
+					<p class="hint">{t('discovery.keywords.empty')}</p>
 				{/each}
 			</div>
 		</Card>
 
-		<Card title="Filtro de Aderência ao Currículo" class="spacious-card" subtitle="Descarta vagas sem correspondência mínima com suas competências antes do scoring de IA.">
-			<Switch label="Filtro ativo" bind:checked={resumeFilterEnabled} />
+		<Card title={t('discovery.card.resume_filter')} class="spacious-card" subtitle={t('discovery.card.resume_filter_subtitle')}>
+			<Switch label={t('discovery.resume_filter.active')} bind:checked={resumeFilterEnabled} />
 			{#if resumeFilterEnabled}
 				<div class="grid grid-2 form-grid">
-					<Field label="Mínimo de correspondências" for="min_matches" hint="Recomendado: 2 a 3 termos para equilibrar relevância e volume.">
-						<Input id="min_matches" type="number" min="1" max="10" bind:value={minMatches} />
+					<Field label={t('discovery.resume_filter.min_matches')} for="min_matches" hint={t('discovery.resume_filter.min_hint_detail')}>
+						<input id="min_matches" type="number" min="1" max="10" bind:value={minMatches} />
 					</Field>
-					<Field label="Modo de correspondência" for="match_mode">
+					<Field label={t('discovery.resume_filter.mode')} for="match_mode">
 						<Select id="match_mode" bind:value={matchMode}>
-							<option value="any">Qualquer termo (≥ mínimo configurado)</option>
-							<option value="all">Todos os termos do currículo</option>
+							<option value="any">{t('discovery.resume_filter.mode_any')}</option>
+							<option value="all">{t('discovery.resume_filter.mode_all')}</option>
 						</Select>
 					</Field>
 				</div>
-				<Panel title={`Palavras-chave extraídas do currículo (${resumeKeywords.length})`}>
+				<Panel title={t('discovery.resume_filter.extracted', { count: resumeKeywords.length })}>
 					{#snippet actions()}
 						<Button type="button" variant="ghost" size="sm" loading={refreshingResume} onclick={refreshResume}>
-							↻ Reextrair do currículo
+							{t('discovery.resume_filter.reextract')}
 						</Button>
 					{/snippet}
 					{#if resumeKeywords.length > 0}
@@ -238,25 +240,25 @@
 							{#each resumeKeywords as term (term)}<span class="chip neutral">{term}</span>{/each}
 						</div>
 					{:else}
-						<p class="hint">Nenhuma palavra extraída ainda. Faça upload em <a href="/curriculum">Currículo</a> ou clique em “Reextrair”.</p>
+						<p class="hint">{t('discovery.resume_filter.no_extracted_rich')}</p>
 					{/if}
 				</Panel>
 			{/if}
 		</Card>
 
-		<Card title="Busca Periódica Automática (Ticker)" class="spacious-card" subtitle="Executa a descoberta em segundo plano dentro do próprio processo openJob.">
-			<Field label="Frequência de execução" for="interval" hint="Mantenha desativado para controlar totalmente quando e quanto consultar as APIs.">
+		<Card title={t('discovery.card.ticker')} class="spacious-card" subtitle={t('discovery.card.ticker_subtitle', { app: t('common.app_name') })}>
+			<Field label={t('discovery.ticker.frequency')} for="interval" hint={t('discovery.ticker.hint')}>
 				<Select id="interval" bind:value={discoveryInterval}>
-					<option value="off">Desativada (apenas sob demanda)</option>
-					<option value="1h">A cada 1 hora</option>
-					<option value="6h">A cada 6 horas (recomendado)</option>
-					<option value="24h">A cada 24 horas</option>
+					<option value="off">{t('discovery.ticker.off')}</option>
+					<option value="1h">{t('discovery.ticker.hourly')}</option>
+					<option value="6h">{t('discovery.ticker.every_6h')}</option>
+					<option value="24h">{t('discovery.ticker.daily')}</option>
 				</Select>
 			</Field>
 		</Card>
 
 		<div class="form-actions">
-			<Button type="submit" loading={saving}>Salvar Configurações</Button>
+			<Button type="submit" loading={saving}>{t('discovery.button.save')}</Button>
 		</div>
 	</form>
 {/if}

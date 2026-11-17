@@ -146,9 +146,9 @@ func handleHealth(cfg config.Config, repo store.Repository) http.HandlerFunc {
 			"status":   "ok",
 			"hostname": cfg.Hostname,
 			"tasks": map[string]any{
-				"queued":           0,
-				"running":          0,
-				"failed_last_24h":  0,
+				"queued":          0,
+				"running":         0,
+				"failed_last_24h": 0,
 			},
 			"notifications": map[string]any{"unread": 0},
 		}
@@ -224,4 +224,24 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// writeAPIError emits the additive error contract of CP13 / ADR 0021:
+//
+//	{ "code": "job.not_found", "params": { "id": 999 }, "message": "job not found" }
+//
+// The legacy `error` field is kept with the same English message so older
+// clients (and internal/debug errors) keep working without a breaking change.
+// `message` is always developer-facing English; the frontend translates
+// known `code`s and falls back to `message` for unknown ones.
+func writeAPIError(w http.ResponseWriter, status int, code, message string, params map[string]any) {
+	payload := map[string]any{
+		"code":    code,
+		"message": message,
+		"error":   message, // backward compatibility with pre-CP13 clients
+	}
+	if len(params) > 0 {
+		payload["params"] = params
+	}
+	writeJSON(w, status, payload)
 }

@@ -1,4 +1,5 @@
 <script lang="ts" generics="T">
+	import { t } from '#lib/i18n/t.js';
 	import type { Snippet } from 'svelte';
 	import type { DataColumn } from './data.js';
 	import { useViewport, viewport } from './media.svelte.js';
@@ -41,8 +42,8 @@
 		columns,
 		rows,
 		getKey,
-		caption = 'Lista de registros',
-		emptyTitle = 'Nada por aqui ainda',
+		caption,
+		emptyTitle,
 		emptyDescription,
 		empty,
 		onrowclick,
@@ -72,19 +73,19 @@
 	{#if empty}
 		{@render empty()}
 	{:else}
-		<EmptyState title={emptyTitle} description={emptyDescription} />
+		<EmptyState title={emptyTitle ?? t('ui.empty_title')} description={emptyDescription} />
 	{/if}
 {:else if viewport.isDesktop}
 	<div class="table-wrap" class:scrollable onscroll={onreachEnd ? onScroll : undefined}>
 		<table>
-			<caption class="visually-hidden">{caption}</caption>
+			<caption class="visually-hidden">{caption ?? t('ui.empty_records')}</caption>
 			<thead>
 				<tr>
 					{#if selectable}
 						<th scope="col" class="check-col">
 							<input
 								type="checkbox"
-								aria-label="Selecionar todas as vagas desta página"
+								aria-label={t('ui.select_all_rows')}
 								checked={allSelected}
 								onchange={(event) => onselectall?.(event.currentTarget.checked)}
 							/>
@@ -96,7 +97,7 @@
 								<button
 									type="button"
 									class="sort-button"
-									aria-label={`Ordenar por ${column.header}`}
+									aria-label={t('ui.sort_by', { column: column.header })}
 									onclick={(event) => { event.stopPropagation(); onsort(column.key); }}
 								>
 									{column.header}
@@ -118,7 +119,7 @@
 							<td class="check-col">
 								<input
 									type="checkbox"
-									aria-label={`Selecionar ${getKey(row)}`}
+									aria-label={t('ui.select_row', { id: getKey(row) })}
 									checked={selectedIds.includes(getKey(row))}
 									onclick={(event) => event.stopPropagation()}
 									onchange={(event) => onselect?.(getKey(row), event.currentTarget.checked)}
@@ -162,11 +163,11 @@
 				<dl>
 					{#if selectable}
 						<div class="field field-select">
-							<dt class="visually-hidden">Selecionar</dt>
+							<dt class="visually-hidden">{t('ui.select_column')}</dt>
 							<dd>
 								<input
 									type="checkbox"
-									aria-label={`Selecionar ${getKey(row)}`}
+									aria-label={t('ui.select_row', { id: getKey(row) })}
 									checked={selectedIds.includes(getKey(row))}
 									onclick={(event) => event.stopPropagation()}
 									onchange={(event) => onselect?.(getKey(row), event.currentTarget.checked)}
@@ -216,7 +217,7 @@
 {#if loadingMore}
 	<div class="list-loading" role="status">
 		<Spinner size={16} />
-		<span>Carregando mais…</span>
+		<span>{t('ui.loading_more')}</span>
 	</div>
 {/if}
 

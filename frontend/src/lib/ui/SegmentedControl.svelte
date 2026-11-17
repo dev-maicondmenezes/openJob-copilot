@@ -1,7 +1,9 @@
 <script lang="ts">
+	import Icon from './Icon.svelte';
 	interface Option {
 		value: string;
 		label: string;
+		icon?: string;
 	}
 
 	interface Props {
@@ -28,6 +30,7 @@
 			aria-pressed={value === option.value}
 			onclick={() => select(option.value)}
 		>
+			{#if option.icon}<Icon name={option.icon} size={16} />{/if}
 			{option.label}
 		</button>
 	{/each}
@@ -55,6 +58,12 @@
 		font-weight: var(--weight-medium);
 		white-space: nowrap;
 		cursor: pointer;
+	}
+
+	.segment {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
 	}
 
 	.segment.active {

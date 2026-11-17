@@ -21,5 +21,27 @@ export default [
 		rules: {
 			'ui/no-ad-hoc-style': 'error'
 		}
+	},
+	{
+		files: ['src/**/*.ts'],
+		languageOptions: { parser: tsParser }
+	},
+	{
+		// CP13: único ponto de import do paraglide é src/lib/i18n/.
+		files: ['src/**/*.{ts,svelte}'],
+		ignores: ['src/lib/i18n/**', 'src/paraglide/**'],
+		rules: {
+			'no-restricted-imports': [
+				'error',
+				{
+					patterns: [
+						{
+							group: ['@inlang/paraglide-js', '**/paraglide/**', '../paraglide/**', './paraglide/**'],
+							message: 'Use o helper único `src/lib/i18n/t.ts` (CP13 §4.2).'
+						}
+					]
+				}
+			]
+		}
 	}
 ];

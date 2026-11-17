@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
 	import Icon from './Icon.svelte';
 
 	interface Option {
@@ -15,14 +16,14 @@
 		onchange?: () => void;
 	}
 
-	let { label, options, value = $bindable([]), allLabel = 'Todas', onchange }: Props = $props();
+	let { label, options, value = $bindable([]), allLabel, onchange }: Props = $props();
 
 	let open = $state(false);
 	let root: HTMLDivElement;
 
 	const summary = $derived(
 		value.length === 0
-			? allLabel
+			? allLabel ?? t('ui.all_label')
 			: value.map((item) => options.find((option) => option.value === item)?.label ?? item).join(', ')
 	);
 

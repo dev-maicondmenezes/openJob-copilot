@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
 	import type { Snippet } from 'svelte';
 	import IconButton from './IconButton.svelte';
 	import { trapFocus } from './focus.js';
@@ -43,7 +44,7 @@
 				{#if description}<p>{description}</p>{/if}
 			</div>
 			{#if dismissible}
-				<IconButton icon="x" label="Fechar" size="sm" onclick={onclose} />
+				<IconButton icon="x" label={t('common.close')} size="sm" onclick={onclose} />
 			{/if}
 		</header>
 		<div class="modal-body">{@render children()}</div>

@@ -49,7 +49,7 @@ test: build-spa
 
 # Verificações de UI do CP12: tipos, lint de tokens e testes Playwright.
 test-ui:
-	cd frontend && npm run check && npm run lint:ui && npm run test:e2e && npm run audit:a11y && npm run test:visual
+	cd frontend && npm run check && npm run i18n:check && npm run lint:ui && npm run test:e2e && npm run audit:a11y && npm run test:visual
 
 vet:
 	cd backend && go vet ./...

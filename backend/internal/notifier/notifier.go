@@ -23,8 +23,8 @@ const SettingKey = "notifications.config"
 
 // Config controls the in-app channel (§3.3). Stored as JSON in settings.
 type Config struct {
-	InAppEnabled        bool `json:"in_app_enabled"`
-	RetentionDays       int  `json:"retention_days"`
+	InAppEnabled         bool `json:"in_app_enabled"`
+	RetentionDays        int  `json:"retention_days"`
 	BrowserNotifications bool `json:"browser_notifications"`
 }
 
@@ -192,12 +192,21 @@ func (n *InApp) handle(e events.Event) {
 		body = body[:maxBodyLen-3] + "..."
 	}
 
+	title, persistedBody := nb.title, body
+	if nb.i18nKey != "" {
+		// CP13/ADR 0020: notificações novas gravam só a chave + params;
+		// o texto é resolvido no frontend no locale atual. title/body
+		// ficam vazios para evitar texto fixo em pt-BR no histórico.
+		title, persistedBody = "", ""
+	}
 	if _, err := n.repo.InsertNotification(ctx, store.Notification{
-		Type:     nb.notificationType,
-		Severity: nb.severity,
-		Title:    nb.title,
-		Body:     body,
-		Link:     nb.link,
+		Type:       nb.notificationType,
+		Severity:   nb.severity,
+		Title:      title,
+		Body:       persistedBody,
+		I18nKey:    nb.i18nKey,
+		I18nParams: nb.i18nParams,
+		Link:       nb.link,
 	}); err != nil {
 		n.logger.Error("notifier: insert notification failed", "kind", e.Kind, "err", err)
 	}
@@ -229,9 +238,23 @@ func (n *InApp) recentlySeen(key string) bool {
 type notificationBuild struct {
 	notificationType string
 	severity         string
-	title            string
-	body             string
+	title            string // mantido para compatibilidade de testes/legado
+	body             string // mantido para compatibilidade de testes/legado
 	link             string
+	i18nKey          string // CP13: ex. "notifications.discovery.completed"
+	i18nParams       string // CP13: JSON dos parâmetros ICU
+}
+
+// i18nParams marshals ICU params into the additive JSON column.
+func i18nParams(values map[string]any) string {
+	if len(values) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(values)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // mapEvent translates a bus event into the persisted notification shape.
@@ -268,6 +291,12 @@ func mapEvent(e events.Event) (notificationBuild, bool) {
 			title:            title,
 			body:             firstNonEmpty(body, e.Body),
 			link:             firstNonEmpty(e.Link, "/applications"),
+			i18nKey:          "notifications.application.status_changed",
+			i18nParams: i18nParams(map[string]any{
+				"job_label": metaStr(meta, "job_label"),
+				"from":      metaStr(meta, "from"),
+				"to":        metaStr(meta, "to"),
+			}),
 		}, true
 
 	case events.KindDiscoveryCompleted:
@@ -281,7 +310,11 @@ func mapEvent(e events.Event) (notificationBuild, bool) {
 			title:            "Busca de vagas concluída",
 			body: fmt.Sprintf("%d novas vagas cadastradas, %d na fila de scoring (%d analisadas).",
 				metaInt(meta, "new_jobs"), metaInt(meta, "queued_scoring"), metaInt(meta, "fetched")),
-			link: firstNonEmpty(e.Link, "/jobs"),
+			link:    firstNonEmpty(e.Link, "/jobs"),
+			i18nKey: "notifications.discovery.completed",
+			i18nParams: i18nParams(map[string]any{
+				"count": metaInt(meta, "new_jobs"),
+			}),
 		}, true
 
 	case events.KindDiscoveryFailed:
@@ -291,6 +324,7 @@ func mapEvent(e events.Event) (notificationBuild, bool) {
 			title:            "Busca de vagas falhou",
 			body:             firstNonEmpty(e.Body, "A busca automática terminou com erro."),
 			link:             firstNonEmpty(e.Link, "/jobs"),
+			i18nKey:          "notifications.discovery.failed",
 		}, true
 
 	case events.KindSourceFetchFailed:
@@ -301,6 +335,8 @@ func mapEvent(e events.Event) (notificationBuild, bool) {
 			title:            "Falha em fonte de vagas",
 			body:             firstNonEmpty(e.Body, source),
 			link:             firstNonEmpty(e.Link, "/settings/sources"),
+			i18nKey:          "notifications.source.fetch_failed",
+			i18nParams:       i18nParams(map[string]any{"source": source}),
 		}, true
 
 	case events.KindTaskCompleted:
@@ -311,6 +347,8 @@ func mapEvent(e events.Event) (notificationBuild, bool) {
 			title:            taskCompletedTitle(typ),
 			body:             firstNonEmpty(e.Body, taskCompletedBody(typ, meta)),
 			link:             firstNonEmpty(e.Link, "/tasks"),
+			i18nKey:          "notifications.task.completed",
+			i18nParams:       i18nParams(map[string]any{"task": typ}),
 		}, true
 
 	case events.KindTaskFailed:
@@ -321,7 +359,9 @@ func mapEvent(e events.Event) (notificationBuild, bool) {
 			title:            "Tarefa de IA falhou",
 			body: fmt.Sprintf("%s: %s", taskHumanName(typ),
 				firstNonEmpty(strings.TrimSpace(e.Body), "erro desconhecido")),
-			link: firstNonEmpty(e.Link, "/tasks"),
+			link:       firstNonEmpty(e.Link, "/tasks"),
+			i18nKey:    "notifications.task.failed",
+			i18nParams: i18nParams(map[string]any{"task": typ}),
 		}, true
 
 	case events.KindTest:

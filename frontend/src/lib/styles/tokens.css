@@ -6,8 +6,8 @@
  *    `src/routes/`. Use estes tokens (ou os componentes em `src/lib/ui/`).
  *  - A escala de espaçamento é base 4px. Valores arbitrários são proibidos.
  *  - Breakpoints são documentados aqui e replicados em `tokens.ts` e no lint.
- *  - Dark mode não é implementado nesta CP, mas todos os papéis semânticos
- *    abaixo permitem trocar o tema redefinindo apenas este bloco.
+ *  - Dark mode (CP13 / ADR 0019): os papéis semânticos abaixo são
+ *    redefinidos em `[data-theme='dark']`. Nomes nunca mudam — só valores.
  */
 
 :root {
@@ -86,7 +86,7 @@
 	--shadow-lg: 0 20px 45px rgba(15, 23, 42, 0.22);
 
 	/* Backdrop único para modal, sheet e drawer. */
-	--overlay-backdrop: rgba(15, 23, 42, 0.48);
+	--overlay-backdrop: rgba(0, 0, 0, 0.6);
 
 	/* --------------------------------------------------------------- motion */
 	--motion-micro: 120ms;
@@ -124,4 +124,49 @@
 	--accent-soft: var(--color-info-soft);
 	--primary: var(--color-primary);
 	--radius: var(--radius-md);
+}
+
+/*
+ * Dark mode — CP13 / ADR 0019.
+ *
+ * Dependências: todos os componentes em `src/lib/ui/` usam apenas tokens
+ * semânticos. Contraste verificado com axe (WCAG AA): texto ≥ 4.5:1 e
+ * controles/interativos ≥ 3:1 sobre as superfícies correspondentes.
+ */
+[data-theme='dark'] {
+	color-scheme: dark;
+
+	--color-primary: #6ea8fe;
+	--color-primary-hover: #93c5fd;
+	--color-on-primary: #0b0b0c;
+	--color-surface: #121215;
+	--color-surface-elevated: #1e1e24;
+	--color-surface-soft: #0b0b0c;
+	--color-border: #3a3a44;
+
+	--color-text-primary: #f4f4f5;
+	--color-text-secondary: #d4d4dc;
+	--color-text-muted: #a8a8b3;
+
+	--color-success: #6ee7b7;
+	--color-success-soft: #062e24;
+	--color-success-border: #0f766e;
+	--color-warning: #fcd34d;
+	--color-warning-soft: #332505;
+	--color-warning-border: #92600a;
+	--color-error: #fca5a5;
+	--color-error-soft: #3a0f13;
+	--color-error-border: #9f3038;
+	--color-info: #93c5fd;
+	--color-info-soft: #102541;
+	--color-info-border: #2f5f9e;
+
+	/* Sombra não é legível em fundo escuro: bordas fazem o trabalho (CP13 §4.1). */
+	--shadow-sm: none;
+	--shadow-md: none;
+	--shadow-lg: none;
+	--overlay-backdrop: rgba(0, 0, 0, 0.8);
+
+	/* Aliases de compatibilidade continuam apontando para os papéis semânticos. */
+	--surface-strong: var(--color-text-primary);
 }

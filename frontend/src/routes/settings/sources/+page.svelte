@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
+	import { errorText } from '#lib/i18n/errors.js';
+	import { formatDate } from '#lib/i18n/format.js';
 	import { onMount } from 'svelte';
 	import SettingsNav from '#lib/components/SettingsNav.svelte';
 	import PageHeader from '#lib/ui/PageHeader.svelte';
@@ -62,15 +65,15 @@
 	let formApiKey = $state('');
 	let saving = $state(false);
 
-	const columns: DataColumn<Source>[] = [
-		{ key: 'name', header: 'Nome / ID', cardLabel: 'Nome', value: (src) => src.name },
-		{ key: 'adapter', header: 'Adapter', value: (src) => src.adapter },
-		{ key: 'enabled', header: 'Ativa', value: (src) => (src.enabled ? 'Ativa' : 'Inativa') },
-		{ key: 'auth', header: 'Autenticação', value: (src) => (src.auth_type === 'api_key' ? (src.has_api_key ? 'chave salva' : 'sem chave') : 'pública') },
-		{ key: 'rate', header: 'Rate limit', value: (src) => (src.capabilities.rate_limit.requests > 0 ? `${src.capabilities.rate_limit.requests}/${src.capabilities.rate_limit.period}` : 'Padrão') },
-		{ key: 'updated', header: 'Atualizada em', value: (src) => new Date(src.updated_at).toLocaleDateString('pt-BR') },
-		{ key: 'actions', header: 'Ações', value: () => '' }
-	];
+	const columns = $derived<DataColumn<Source>[]>([
+		{ key: 'name', header: t('sources.col.name_id'), cardLabel: t('sources.col.name'), value: (src) => src.name },
+		{ key: 'adapter', header: t('sources.col.adapter'), value: (src) => src.adapter },
+		{ key: 'enabled', header: t('common.active'), value: (src) => (src.enabled ? t('common.active') : t('common.inactive')) },
+		{ key: 'auth', header: t('sources.col.auth'), value: (src) => (src.auth_type === 'api_key' ? (src.has_api_key ? t('sources.cell.key_saved') : t('sources.cell.no_key')) : t('sources.cell.public')) },
+		{ key: 'rate', header: t('sources.col.rate_limit'), value: (src) => (src.capabilities.rate_limit.requests > 0 ? `${src.capabilities.rate_limit.requests}/${src.capabilities.rate_limit.period}` : t('sources.cell.default')) },
+		{ key: 'updated', header: t('sources.col.updated'), value: (src) => formatDate(src.updated_at) },
+		{ key: 'actions', header: t('tasks.col.actions'), value: () => '' }
+	]);
 
 	onMount(async () => {
 		await Promise.all([loadSources(), loadAdapters()]);
@@ -80,9 +83,9 @@
 		try {
 			const res = await fetch('/api/sources');
 			if (res.ok) sources = await res.json();
-			else status = { kind: 'error', text: 'Falha ao carregar fontes configuradas.' };
+			else status = { kind: 'error', text: t('sources.error.load') };
 		} catch {
-			status = { kind: 'error', text: 'Falha de rede ao listar fontes.' };
+			status = { kind: 'error', text: t('sources.error.load_network') };
 		} finally {
 			loading = false;
 		}
@@ -111,10 +114,10 @@
 			if (res.ok) src.enabled = !src.enabled;
 			else {
 				const err = await res.json().catch(() => ({}));
-				status = { kind: 'error', text: err.error ?? 'Falha ao alterar status da fonte.' };
+				status = { kind: 'error', text: errorText(err, t('sources.error.toggle')) };
 			}
 		} catch {
-			status = { kind: 'error', text: 'Falha de rede ao alterar status.' };
+			status = { kind: 'error', text: t('sources.error.toggle_network') };
 		}
 	}
 
@@ -123,32 +126,32 @@
 		status = null;
 		try {
 			const res = await fetch(`/api/sources/${id}/test`, { method: 'POST' });
-			const result = await res.json().catch(() => ({ ok: false, error: 'Erro desconhecido' }));
+			const result = await res.json().catch(() => ({ ok: false, error: t('sources.error.unknown') }));
 			testResults[id] = result;
 			status = result.ok
-				? { kind: 'success', text: `Teste concluído (${result.latency_ms}ms, ${result.count ?? 1} vaga).` }
-				: { kind: 'error', text: `Falha no teste: ${result.error}` };
+				? { kind: 'success', text: t('sources.flash.test', { ms: result.latency_ms, count: result.count ?? 1 }) }
+				: { kind: 'error', text: t('sources.flash.test_fail', { error: result.error }) };
 		} catch {
-			status = { kind: 'error', text: 'Falha de rede ao testar fonte.' };
+			status = { kind: 'error', text: t('sources.error.test_network') };
 		} finally {
 			testingId = null;
 		}
 	}
 
 	async function deleteSource(id: string) {
-		if (!confirm(`Deseja realmente remover a fonte "${id}"? As vagas já descobertas serão mantidas.`)) return;
+		if (!confirm(t('sources.confirm_remove', { id }))) return;
 		status = null;
 		try {
 			const res = await fetch(`/api/sources/${id}`, { method: 'DELETE' });
 			if (res.ok) {
-				status = { kind: 'success', text: 'Fonte removida com sucesso.' };
+				status = { kind: 'success', text: t('sources.flash.removed') };
 				await loadSources();
 			} else {
 				const err = await res.json().catch(() => ({}));
-				status = { kind: 'error', text: err.error ?? 'Falha ao remover fonte.' };
+				status = { kind: 'error', text: errorText(err, t('sources.error.remove')) };
 			}
 		} catch {
-			status = { kind: 'error', text: 'Falha de rede ao remover fonte.' };
+			status = { kind: 'error', text: t('sources.error.remove_network') };
 		}
 	}
 
@@ -196,10 +199,10 @@
 				});
 				if (res.ok) {
 					showModal = false;
-					status = { kind: 'success', text: 'Fonte adicionada com sucesso!' };
+					status = { kind: 'success', text: t('sources.flash.added') };
 				} else {
 					const err = await res.json().catch(() => ({}));
-					status = { kind: 'error', text: err.error ?? 'Falha ao criar fonte.' };
+					status = { kind: 'error', text: errorText(err, t('sources.error.create')) };
 				}
 			} else {
 				const payload: Record<string, unknown> = {
@@ -217,15 +220,15 @@
 				});
 				if (res.ok) {
 					showModal = false;
-					status = { kind: 'success', text: 'Fonte atualizada com sucesso!' };
+					status = { kind: 'success', text: t('sources.flash.updated') };
 				} else {
 					const err = await res.json().catch(() => ({}));
-					status = { kind: 'error', text: err.error ?? 'Falha ao atualizar fonte.' };
+					status = { kind: 'error', text: errorText(err, t('sources.error.update')) };
 				}
 			}
 			await loadSources();
 		} catch {
-			status = { kind: 'error', text: 'Falha de rede ao salvar fonte.' };
+			status = { kind: 'error', text: t('sources.error.save_network') };
 		} finally {
 			saving = false;
 		}
@@ -233,41 +236,41 @@
 </script>
 
 <svelte:head>
-	<title>Fontes de Vagas · openJob</title>
+	<title>{t('sources.meta_title')}</title>
 </svelte:head>
 
 {#snippet renderCell(src: Source, column: DataColumn<Source>)}
 	{#if column.key === 'name'}
 		<strong>{src.name}</strong>
 		<span class="cell-note">{src.id}</span>
-		{#if src.capabilities.attribution_required}<Badge tone="info">atribuição</Badge>{/if}
-		{#if src.capabilities.experimental}<Badge tone="warning">experimental</Badge>{/if}
+		{#if src.capabilities.attribution_required}<Badge tone="info">{t('sources.badge.attribution')}</Badge>{/if}
+		{#if src.capabilities.experimental}<Badge tone="warning">{t('sources.badge.experimental')}</Badge>{/if}
 	{:else if column.key === 'adapter'}
 		<code class="mono">{src.adapter}</code>
 	{:else if column.key === 'enabled'}
 		<Switch
-			label={src.enabled ? 'Ativa' : 'Inativa'}
+			label={src.enabled ? t('common.active') : t('common.inactive')}
 			checked={src.enabled}
 			onchange={() => toggleEnabled(src)}
 		/>
 	{:else if column.key === 'auth'}
 		<Badge tone={src.auth_type === 'api_key' ? (src.has_api_key ? 'success' : 'warning') : 'neutral'}>
-			{src.auth_type === 'api_key' ? (src.has_api_key ? 'chave salva' : 'sem chave') : 'pública'}
+			{src.auth_type === 'api_key' ? (src.has_api_key ? t('sources.cell.key_saved') : t('sources.cell.no_key')) : t('sources.cell.public')}
 		</Badge>
 	{:else if column.key === 'rate'}
 		{src.capabilities.rate_limit.requests > 0
-			? `${src.capabilities.rate_limit.requests}/${src.capabilities.rate_limit.period === 'day' ? 'dia' : src.capabilities.rate_limit.period === 'hour' ? 'hora' : 'min'}`
-			: 'Padrão'}
+			? `${src.capabilities.rate_limit.requests}/${src.capabilities.rate_limit.period === 'day' ? t('sources.cell.day') : src.capabilities.rate_limit.period === 'hour' ? t('sources.cell.hour') : t('sources.cell.min')}`
+			: t('sources.cell.default')}
 	{:else if column.key === 'actions'}
 		<div class="row-actions">
-			<Button variant="ghost" size="sm" loading={testingId === src.id} onclick={() => testSource(src.id)}>Testar</Button>
-			<Button variant="ghost" size="sm" onclick={() => openEditModal(src)}>Editar</Button>
-			<Button variant="ghost" size="sm" onclick={() => deleteSource(src.id)}>Excluir</Button>
+			<Button variant="ghost" size="sm" loading={testingId === src.id} onclick={() => testSource(src.id)}>{t('common.test')}</Button>
+			<Button variant="ghost" size="sm" onclick={() => openEditModal(src)}>{t('common.edit')}</Button>
+			<Button variant="ghost" size="sm" onclick={() => deleteSource(src.id)}>{t('common.remove')}</Button>
 		</div>
 		{#if testResults[src.id]}
 			<Alert severity={testResults[src.id].ok ? 'success' : 'error'}>
 				{testResults[src.id].ok
-					? `OK (${testResults[src.id].latency_ms}ms)`
+					? t('sources.button.test_ok', { ms: testResults[src.id].latency_ms })
 					: testResults[src.id].error}
 			</Alert>
 		{/if}
@@ -277,9 +280,9 @@
 {/snippet}
 
 <PageHeader
-	title="Configurações"
-	subtitle="Gestão de fontes públicas de vagas — APIs gratuitas oficiais, sem webscraping."
-	breadcrumb={[{ label: 'Início', href: '/' }, { label: 'Configurações', href: '/settings' }, { label: 'Fontes' }]}
+	title={t('common.settings')}
+	subtitle={t('sources.subtitle')}
+	breadcrumb={[{ label: t('common.home'), href: '/' }, { label: t('common.settings'), href: '/settings' }, { label: 'Fontes' }]}
 />
 
 <SettingsNav active="sources" />
@@ -288,36 +291,36 @@
 	<Alert severity={status.kind}>{status.text}</Alert>
 {/if}
 
-<Card title="Fontes Configuradas" subtitle="Fontes ativas são consultadas na descoberta automática ou pelo botão “Buscar agora”.">
+<Card title={t('sources.title')} subtitle={t('sources.card_subtitle', { search: t('jobs.search_now') })}>
 	{#snippet actions()}
-		<Button onclick={openAddModal}>+ Adicionar Fonte</Button>
+		<Button onclick={openAddModal}>{t('sources.add_button')}</Button>
 	{/snippet}
 	{#if loading}
-		<p class="hint">Carregando fontes…</p>
+		<p class="hint">{t('sources.loading')}</p>
 	{:else if sources.length === 0}
-		<p class="hint">Nenhuma fonte cadastrada.</p>
+		<p class="hint">{t('sources.empty')}</p>
 	{:else}
 		<DataView
 			columns={columns}
 			rows={sources}
 			getKey={(src) => src.id}
-			caption="Fontes de vagas configuradas"
+			caption={t('sources.caption')}
 			render={renderCell}
 		/>
 	{/if}
 </Card>
 
-<Dialog open={showModal} onclose={() => (showModal = false)} title={modalMode === 'add' ? 'Adicionar nova fonte' : `Editar fonte: ${formId}`}>
+<Dialog open={showModal} onclose={() => (showModal = false)} title={modalMode === 'add' ? t('sources.dialog.add') : t('sources.dialog.edit', { id: formId })}>
 	<form id="source-form" onsubmit={(e) => { e.preventDefault(); saveModal(); }}>
 		{#if modalMode === 'add'}
-			<Field label="Identificador único (slug)" for="form_id">
-				<Input id="form_id" bind:value={formId} placeholder="ex: himalayas-br" required />
+			<Field label={t('sources.field.slug')} for="form_id">
+				<input id="form_id" bind:value={formId} placeholder={t('sources.field.slug_placeholder')} required />
 			</Field>
 		{/if}
-		<Field label="Nome exibido" for="form_name">
-			<Input id="form_name" bind:value={formName} placeholder="ex: Himalayas Brasil" required />
+		<Field label={t('sources.field.name')} for="form_name">
+			<input id="form_name" bind:value={formName} placeholder={t('sources.field.name_placeholder')} required />
 		</Field>
-		<Field label="Adapter em código" for="form_adapter">
+		<Field label={t('sources.field.adapter')} for="form_adapter">
 			<Select id="form_adapter" bind:value={formAdapter}>
 				{#each adapters as adapter (adapter.slug)}
 					<option value={adapter.slug}>{adapter.name} ({adapter.slug})</option>
@@ -325,26 +328,26 @@
 			</Select>
 		</Field>
 		<div class="grid grid-2">
-			<Field label="Prioridade (menor = primeiro)" for="form_priority">
-				<Input id="form_priority" type="number" min="1" max="999" bind:value={formPriority} />
+			<Field label={t('sources.field.priority')} for="form_priority">
+				<input id="form_priority" type="number" min="1" max="999" bind:value={formPriority} />
 			</Field>
-			<Field label="Tipo de autenticação" for="form_auth">
+			<Field label={t('sources.field.auth')} for="form_auth">
 				<Select id="form_auth" bind:value={formAuthType}>
-					<option value="none">Nenhuma (pública/gratuita)</option>
-					<option value="api_key">API Key</option>
+					<option value="none">{t('sources.field.auth_none')}</option>
+					<option value="api_key">{t('sources.field.api_key')}</option>
 				</Select>
 			</Field>
 		</div>
 		{#if formAuthType === 'api_key'}
-			<Field label="API Key" for="form_api_key" hint="Gravada cifrada com a sua master key e nunca exposta ao frontend.">
-				<Input id="form_api_key" type="password" bind:value={formApiKey} placeholder={modalMode === 'edit' ? '•••••••• (deixe vazio para manter)' : 'Cole a chave da API'} />
+			<Field label={t('sources.field.api_key')} for="form_api_key" hint="Gravada cifrada com a sua master key e nunca exposta ao frontend.">
+				<input id="form_api_key" type="password" bind:value={formApiKey} placeholder={modalMode === 'edit' ? t('sources.field.api_key_saved') : t('sources.field.api_key_hint')} />
 			</Field>
 		{/if}
-		<Checkbox id="form_enabled" label="Habilitar para busca automática" bind:checked={formEnabled} />
+		<Checkbox id="form_enabled" label={t('sources.field.enabled')} bind:checked={formEnabled} />
 	</form>
 	{#snippet footer()}
-		<Button variant="ghost" onclick={() => (showModal = false)}>Cancelar</Button>
-		<Button type="submit" form="source-form" loading={saving}>Salvar Fonte</Button>
+		<Button variant="ghost" onclick={() => (showModal = false)}>{t('common.cancel')}</Button>
+		<Button type="submit" form="source-form" loading={saving}>{t('sources.button.save')}</Button>
 	{/snippet}
 </Dialog>
 

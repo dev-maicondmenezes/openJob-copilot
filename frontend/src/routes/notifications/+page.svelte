@@ -1,4 +1,8 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
+	import { errorText } from '#lib/i18n/errors.js';
+	import { notificationTitle, notificationBody } from '#lib/i18n/notifications.js';
+	import { currentLocale } from '#lib/i18n/format.js';
 	import { onMount } from 'svelte';
 	import { markNotificationRead, markAllNotificationsRead, unreadCount, type NotificationItem } from '#lib/notifications.svelte.ts';
 	import PageHeader from '#lib/ui/PageHeader.svelte';
@@ -15,21 +19,21 @@
 	import EmptyState from '#lib/ui/EmptyState.svelte';
 	import Icon from '#lib/ui/Icon.svelte';
 
-	const types = [
-		{ value: '', label: 'Todos os tipos' },
-		{ value: 'application_status', label: 'Candidaturas' },
-		{ value: 'discovery_result', label: 'Busca de vagas' },
-		{ value: 'task_completed', label: 'Tarefas concluídas' },
-		{ value: 'task_failed', label: 'Tarefas com falha' },
-		{ value: 'source_error', label: 'Erros de fonte' }
-	];
-	const severities = [
-		{ value: '', label: 'Todas' },
-		{ value: 'info', label: 'Info' },
-		{ value: 'success', label: 'Sucesso' },
-		{ value: 'warning', label: 'Aviso' },
-		{ value: 'error', label: 'Erro' }
-	];
+	const types = $derived([
+		{ value: '', label: t('notifications.filter.all_types') },
+		{ value: 'application_status', label: t('common.applications') },
+		{ value: 'discovery_result', label: t('notifications.type.discovery') },
+		{ value: 'task_completed', label: t('notifications.type.task_completed') },
+		{ value: 'task_failed', label: t('notifications.type.task_failed') },
+		{ value: 'source_error', label: t('notifications.type.source_error') }
+	]);
+	const severities = $derived([
+		{ value: '', label: t('ui.all_label') },
+		{ value: 'info', label: t('common.info') },
+		{ value: 'success', label: t('common.success') },
+		{ value: 'warning', label: t('common.warning') },
+		{ value: 'error', label: t('common.error') }
+	]);
 
 	let items: NotificationItem[] = $state([]);
 	let cursor = $state<string | null>(null);
@@ -78,10 +82,10 @@
 				cursor = data.next_cursor || null;
 			} else {
 				const err = await res.json().catch(() => ({}));
-				error = err.error ?? `Erro ${res.status} ao carregar notificações.`;
+				error = errorText(err, t('notifications.error.load_http', { status: res.status }));
 			}
 		} catch {
-			error = 'Falha de rede ao carregar notificações.';
+			error = t('notifications.error.load_network');
 		} finally {
 			loading = false;
 		}
@@ -101,7 +105,7 @@
 	}
 
 	function fmtWhen(iso: string): string {
-		return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+		return new Date(iso).toLocaleString(currentLocale(), { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 	}
 
 	function dayLabel(iso: string): string {
@@ -109,25 +113,25 @@
 		const today = new Date();
 		const yesterday = new Date(today);
 		yesterday.setDate(today.getDate() - 1);
-		if (d.toDateString() === today.toDateString()) return 'Hoje';
-		if (d.toDateString() === yesterday.toDateString()) return 'Ontem';
-		return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' });
+		if (d.toDateString() === today.toDateString()) return t('common.today');
+		if (d.toDateString() === yesterday.toDateString()) return t('common.yesterday');
+		return d.toLocaleDateString(currentLocale(), { day: '2-digit', month: 'long' });
 	}
 
 	onMount(() => void load());
 </script>
 
 <svelte:head>
-	<title>Notificações · openJob</title>
+	<title>{t('notifications.meta_title')}</title>
 </svelte:head>
 
 <PageHeader
-	title="Notificações"
-	subtitle="Tudo que aconteceu com suas candidaturas, buscas e tarefas de IA."
-	breadcrumb={[{ label: 'Início', href: '/' }, { label: 'Notificações' }]}
+	title={t('common.notifications')}
+	subtitle={t('notifications.subtitle')}
+	breadcrumb={[{ label: t('common.home'), href: '/' }, { label: t('common.notifications') }]}
 >
 	{#snippet actions()}
-		<Badge tone="primary">{$unreadCount} não lida{$unreadCount === 1 ? '' : 's'}</Badge>
+		<Badge tone="primary">{t('notifications.unread_badge', { count: $unreadCount })}</Badge>
 	{/snippet}
 </PageHeader>
 
@@ -135,14 +139,14 @@
 	<div class="filter-actions">
 		<IconButton
 			icon="check"
-			label="Marcar todas como lidas"
+			label={t('common.mark_all_read')}
 			variant="ghost"
 			size="sm"
 			onclick={() => markAllNotificationsRead().then(() => load())}
 		/>
 		<IconButton
 			icon="trash"
-			label="Limpar lidas"
+			label={t('notifications.clear_read')}
 			variant="ghost"
 			size="sm"
 			onclick={clearRead}
@@ -151,34 +155,34 @@
 {/snippet}
 
 <div class="filters-mobile">
-	<SegmentedControl options={severities} value={severityFilter} label="Filtrar por severidade" onchange={(value) => { severityFilter = value; void load(); }} />
+	<SegmentedControl options={severities} value={severityFilter} label={t('notifications.filter_severity')} onchange={(value) => { severityFilter = value; void load(); }} />
 	{@render filterActions()}
 </div>
 
 <div class="filters-inline">
-	<Field label="Tipo" for="filter-type">
+	<Field label={t('notifications.filter.type')} for="filter-type">
 		<Select id="filter-type" options={types} value={typeFilter} onchange={(e) => { typeFilter = e.currentTarget.value; void load(); }} />
 	</Field>
-	<Field label="Severidade" for="filter-severity">
+	<Field label={t('notifications.filter.severity')} for="filter-severity">
 		<Select id="filter-severity" options={severities} value={severityFilter} onchange={(e) => { severityFilter = e.currentTarget.value; void load(); }} />
 	</Field>
-	<Checkbox label="Somente não lidas" checked={unreadOnly} onchange={() => void load()} />
+	<Checkbox label={t('notifications.only_unread')} checked={unreadOnly} onchange={() => void load()} />
 	{@render filterActions()}
 </div>
 
 {#if error}
-	<Alert severity="error" title="Não foi possível carregar">{error}</Alert>
+	<Alert severity="error" title={t('applications.error.load')}>{error}</Alert>
 {/if}
 
 {#if loading && items.length === 0}
-	<Card><p class="hint">Carregando notificações…</p></Card>
+	<Card><p class="hint">{t('notifications.loading')}</p></Card>
 {:else if items.length === 0}
 	<Card>
 		<EmptyState
-			title="Nenhuma notificação por aqui"
-			description="Elas aparecem quando uma candidatura muda de status, uma busca termina ou uma tarefa de IA conclui/falha."
+			title={t('notifications.empty.title')}
+			description={t('notifications.empty.desc')}
 		>
-			<a class="cta" href="/settings/notifications">Configurar notificações</a>
+			<a class="cta" href="/settings/notifications">{t('notifications.empty.configure')}</a>
 		</EmptyState>
 	</Card>
 {:else}
@@ -192,18 +196,18 @@
 					>
 						<span class="sev-icon"><Icon name={sevIcon[item.severity] ?? 'info'} size={20} /></span>
 						<span class="body">
-							<strong>{item.title}</strong>
-							<span class="text">{item.body}</span>
+							<strong>{notificationTitle(item)}</strong>
+							<span class="text">{notificationBody(item)}</span>
 							<span class="when">{fmtWhen(item.created_at)}</span>
 						</span>
-						{#if item.read_at === null}<span class="dot" role="img" aria-label="Não lida"></span>{/if}
+						{#if item.read_at === null}<span class="dot" role="img" aria-label={t('common.unread')}></span>{/if}
 					</Card>
 				{/each}
 			</div>
 		</Section>
 	{/each}
 	{#if cursor}
-		<Button variant="secondary" loading={loading} onclick={() => load(false)}>Carregar mais</Button>
+		<Button variant="secondary" loading={loading} onclick={() => load(false)}>{t('notifications.load_more')}</Button>
 	{/if}
 {/if}
 

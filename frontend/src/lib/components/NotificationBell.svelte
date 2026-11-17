@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
+	import { notificationTitle, notificationBody } from '#lib/i18n/notifications.js';
+	import { currentLocale } from '#lib/i18n/format.js';
 	import { onMount } from 'svelte';
 	import {
 		unreadCount,
@@ -47,9 +50,9 @@
 		const today = new Date();
 		const yesterday = new Date(today);
 		yesterday.setDate(today.getDate() - 1);
-		if (d.toDateString() === today.toDateString()) return 'Hoje';
-		if (d.toDateString() === yesterday.toDateString()) return 'Ontem';
-		return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' });
+		if (d.toDateString() === today.toDateString()) return t('common.today');
+		if (d.toDateString() === yesterday.toDateString()) return t('common.yesterday');
+		return d.toLocaleDateString(currentLocale(), { day: '2-digit', month: 'long' });
 	}
 
 	const grouped = $derived.by(() => {
@@ -85,7 +88,7 @@
 	<div class="bell-button">
 		<IconButton
 			icon="bell"
-			label="Notificações"
+			label={t('common.notifications')}
 			variant="ghost"
 			iconSize={24}
 			onclick={toggle}
@@ -98,13 +101,13 @@
 	</div>
 
 	{#if open}
-		<div class="panel" role="dialog" aria-label="Notificações recentes">
+		<div class="panel" role="dialog" aria-label={t('notifications.bell.recent')}>
 			<header class="panel-head">
-				<strong>Notificações</strong>
+				<strong>{t('common.notifications')}</strong>
 				<div class="head-actions">
 					<IconButton
 						icon="check"
-						label="Marcar todas como lidas"
+						label={t('common.mark_all_read')}
 						variant="ghost"
 						size="sm"
 						onclick={() => markAllNotificationsRead().then(loadRecent)}
@@ -112,8 +115,8 @@
 					<a
 						href="/notifications"
 						class="icon-link"
-						aria-label="Ver todas"
-						title="Ver todas"
+						aria-label={t('common.see_all')}
+						title={t('common.see_all')}
 						onclick={() => (open = false)}
 					>
 						<Icon name="arrow-up-right" size={20} />
@@ -122,8 +125,8 @@
 			</header>
 
 			{#if items.length === 0}
-				<Alert title="Nada por aqui ainda" severity="info">
-					Notificações aparecem quando uma candidatura muda de status ou uma busca termina.
+				<Alert title={t('ui.empty_title')} severity="info">
+					{t('notifications.bell.empty_desc')}
 				</Alert>
 			{:else}
 				{#each grouped as group (group.label)}
@@ -137,8 +140,8 @@
 						>
 							<Icon name={sevIcon[item.severity] ?? 'info'} size={20} />
 							<span class="text">
-								<strong>{item.title}</strong>
-								<span class="body">{item.body}</span>
+								<strong>{notificationTitle(item)}</strong>
+								<span class="body">{notificationBody(item)}</span>
 							</span>
 						</button>
 					{/each}

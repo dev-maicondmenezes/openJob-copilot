@@ -17,6 +17,7 @@ const job = (id: number) => ({
 });
 
 const responses: Record<string, unknown> = {
+	'/api/settings': { settings: { locale: 'pt-BR' }, locale: 'pt-BR' },
 	'/api/settings/llm-key': { configured: true },
 	'/api/settings/llm': { configured: true, base_url: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
 	'/api/settings/discovery': {
@@ -53,6 +54,18 @@ const responses: Record<string, unknown> = {
 				read_at: null,
 				link: '/jobs/1',
 				created_at: '2026-11-03T09:30:00Z'
+			},
+			{
+				id: 'n2',
+				title: '',
+				body: '',
+				i18n_key: 'notifications.application.status_changed',
+				i18n_params: '{"job_label":"Senior Go Developer","from":"pending","to":"interview"}',
+				severity: 'info',
+				type: 'application_status',
+				read_at: null,
+				link: '/applications',
+				created_at: '2026-11-03T10:00:00Z'
 			}
 		],
 		next_cursor: null
@@ -93,6 +106,14 @@ const responses: Record<string, unknown> = {
 
 /** Intercepta chamadas de API com respostas fixas. */
 export async function mockApi(page: Page): Promise<void> {
+	// CP13: fixa o locale/tema para que os testes legados (que assertam
+	// texto pt-BR e o visual snapshot light) permaneçam determinísticos.
+	// Testes específicos de i18n/dark mode podem sobrescrever via
+	// `page.evaluate` + `page.reload()`.
+	await page.addInitScript(() => {
+		localStorage.setItem('openjob.locale', 'pt-BR');
+		localStorage.setItem('openjob.theme', 'light');
+	});
 	await page.route('**/api/**', async (route: Route) => {
 		const url = new URL(route.request().url());
 		const key = url.pathname;

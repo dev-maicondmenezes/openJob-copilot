@@ -1,8 +1,11 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
+	import { errorText } from '#lib/i18n/errors.js';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { toast } from '#lib/toast.svelte.ts';
+	import { currentLocale, formatDate } from '#lib/i18n/format.js';
 
 	import PageHeader from '#lib/ui/PageHeader.svelte';
 	import Card from '#lib/ui/Card.svelte';
@@ -26,7 +29,7 @@
 	import JobDetail from '#lib/components/JobDetail.svelte';
 	import type { DataColumn } from '#lib/ui/data.js';
 	import { viewport } from '#lib/ui/media.svelte.js';
-	import { SOURCE_LABELS, STATUS_LABELS, scoreTone, type Job } from '#lib/types/job.js';
+	import { SOURCE_LABELS, statusLabel, scoreTone, type Job } from '#lib/types/job.js';
 
 	let jobs: Job[] = $state([]);
 	let loading = $state(true);
@@ -76,19 +79,19 @@
 			.map((source) => ({ value: source, label: SOURCE_LABELS[source] ?? source }))
 	);
 
-	const statusOptions = [
-		{ value: 'all', label: 'Todos os status' },
-		{ value: 'new', label: 'Novas' },
-		{ value: 'approved', label: 'Aprovadas' },
-		{ value: 'discarded', label: 'Descartadas' }
-	];
+	const statusOptions = $derived([
+		{ value: 'all', label: t('jobs.status_all') },
+		{ value: 'new', label: t('jobs.status_new') },
+		{ value: 'approved', label: t('jobs.status_approved') },
+		{ value: 'discarded', label: t('jobs.status_discarded') }
+	]);
 
 	const filteredJobs = $derived(
 		jobs.filter((job) => {
 			if (statusFilter !== 'all' && job.status !== statusFilter) return false;
 			if (sourceFilter.length > 0 && !sourceFilter.includes(job.source)) return false;
-			const q = searchTerm.trim().toLocaleLowerCase('pt-BR');
-			if (q && !`${job.title} ${job.company} ${job.description}`.toLocaleLowerCase('pt-BR').includes(q)) return false;
+			const q = searchTerm.trim().toLocaleLowerCase(currentLocale());
+			if (q && !`${job.title} ${job.company} ${job.description}`.toLocaleLowerCase(currentLocale()).includes(q)) return false;
 			return true;
 		})
 	);
@@ -102,7 +105,7 @@
 			const an = Number(av);
 			const bn = Number(bv);
 			if (!Number.isNaN(an) && !Number.isNaN(bn) && av !== '' && bv !== '') return (an - bn) * factor;
-			return String(av).localeCompare(String(bv), 'pt-BR') * factor;
+			return String(av).localeCompare(String(bv), currentLocale()) * factor;
 		});
 	});
 
@@ -111,7 +114,11 @@
 		sortedJobs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 	);
 	const rangeLabel = $derived(
-		`${sortedJobs.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1}..${Math.min(currentPage * PAGE_SIZE, sortedJobs.length)} de ${sortedJobs.length} vagas`
+		t('jobs.range', {
+			start: sortedJobs.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1,
+			end: Math.min(currentPage * PAGE_SIZE, sortedJobs.length),
+			total: sortedJobs.length
+		})
 	);
 	// Desktop pagina; phone/tablet carrega progressivamente (sem paginação).
 	const visibleJobs = $derived(
@@ -145,18 +152,18 @@
 		if (currentPage > totalPages) currentPage = totalPages;
 	});
 
-	const columns: DataColumn<Job>[] = [
-		{ key: 'title', header: 'Vaga', cardLabel: 'Vaga', value: (job) => job.title },
-		{ key: 'company', header: 'Empresa', value: (job) => job.company },
-		{ key: 'source', header: 'Fonte', value: (job) => SOURCE_LABELS[job.source] ?? job.source },
-		{ key: 'score', header: 'Score', value: (job) => (job.score_fit === null ? 'sem score' : String(job.score_fit)) },
-		{ key: 'status', header: 'Status', value: (job) => STATUS_LABELS[job.status] ?? job.status },
+	const columns = $derived<DataColumn<Job>[]>([
+		{ key: 'title', header: t('jobs.col.job'), cardLabel: t('jobs.col.job'), value: (job) => job.title },
+		{ key: 'company', header: t('jobs.col.company'), value: (job) => job.company },
+		{ key: 'source', header: t('common.source'), value: (job) => SOURCE_LABELS[job.source] ?? job.source },
+		{ key: 'score', header: t('common.score'), value: (job) => (job.score_fit === null ? t('jobs.no_score') : String(job.score_fit)) },
+		{ key: 'status', header: t('common.status'), value: (job) => statusLabel(job.status) },
 		{
 			key: 'created_at',
-			header: 'Data',
-			value: (job) => new Date(job.created_at).toLocaleDateString('pt-BR')
+			header: t('common.date'),
+			value: (job) => formatDate(job.created_at)
 		},
-	];
+	]);
 
 	async function fetchDraft(link: string) {
 		const target = link.trim();
@@ -176,17 +183,17 @@
 				if (body.company) company = body.company;
 				if (body.description) description = body.description;
 				if (body.exists) {
-					status = { kind: 'error', text: 'Atenção: já existe uma vaga cadastrada com essa URL.' };
+					status = { kind: 'error', text: t('jobs.flash.duplicate_url') };
 				} else if (!body.description) {
-					status = { kind: 'error', text: 'Página lida, mas sem descrição extraível — cole a JD manualmente.' };
+					status = { kind: 'error', text: t('jobs.flash.no_description') };
 				} else {
-					status = { kind: 'success', text: 'Dados preenchidos a partir da URL — revise antes de salvar.' };
+					status = { kind: 'success', text: t('jobs.flash.filled_from_url') };
 				}
 			} else {
-				status = { kind: 'error', text: body.error ?? `Erro ${res.status} ao buscar a vaga.` };
+				status = { kind: 'error', text: errorText(body, t('jobs.error.fetch_http', { status: res.status })) };
 			}
 		} catch {
-			status = { kind: 'error', text: 'Falha de rede ao buscar a vaga.' };
+			status = { kind: 'error', text: t('jobs.error.fetch_network') };
 		} finally {
 			fetching = false;
 		}
@@ -224,10 +231,10 @@
 		try {
 			const res = await fetch('/api/jobs/discover', { method: 'POST' });
 			if (res.status === 409) {
-				status = { kind: 'error', text: 'Já existe uma busca em andamento. Aguarde a conclusão.' };
+				status = { kind: 'error', text: t('jobs.flash.search_running') };
 			} else if (!res.ok) {
 				const err = await res.json().catch(() => ({}));
-				status = { kind: 'error', text: err.error ?? 'Falha ao iniciar busca automática.' };
+				status = { kind: 'error', text: errorText(err, t('jobs.flash.search_start_failed')) };
 				discovering = false;
 				return;
 			}
@@ -243,7 +250,7 @@
 						if (stats) {
 							status = {
 								kind: 'success',
-								text: `Busca finalizada: ${stats.fetched} analisadas, ${stats.new_jobs} novas cadastradas (${stats.scored} pontuadas).`
+								text: t('jobs.flash.search_done', { fetched: stats.fetched, created: stats.new_jobs, scored: stats.scored })
 							};
 						}
 						break;
@@ -252,7 +259,7 @@
 			}
 			await loadJobs();
 		} catch {
-			status = { kind: 'error', text: 'Falha de rede durante a busca de vagas.' };
+			status = { kind: 'error', text: t('jobs.error.search_network') };
 		} finally {
 			discovering = false;
 		}
@@ -267,10 +274,10 @@
 				if (selectedJob) selectedJob = jobs.find((job) => job.id === selectedJob!.id) ?? null;
 			} else {
 				const err = await res.json().catch(() => ({}));
-				status = { kind: 'error', text: err.error ?? `Erro ${res.status} ao carregar vagas.` };
+				status = { kind: 'error', text: errorText(err, t('jobs.error.load_http', { status: res.status })) };
 			}
 		} catch {
-			status = { kind: 'error', text: 'Falha de rede ao carregar vagas.' };
+			status = { kind: 'error', text: t('jobs.error.load_network') };
 		} finally {
 			loading = false;
 		}
@@ -299,13 +306,13 @@
 			if (res.ok) {
 				title = company = url = description = '';
 				newJobOpen = false;
-				status = { kind: 'success', text: 'Vaga salva! Você pode calcular o score ou aprovar.' };
+				status = { kind: 'success', text: t('jobs.flash.saved') };
 				await loadJobs();
 			} else {
-				status = { kind: 'error', text: body.error ?? `Erro ${res.status} ao salvar.` };
+				status = { kind: 'error', text: errorText(body, t('jobs.error.save_http', { status: res.status })) };
 			}
 		} catch {
-			status = { kind: 'error', text: 'Falha de rede ao salvar.' };
+			status = { kind: 'error', text: t('jobs.error.save_network') };
 		} finally {
 			saving = false;
 		}
@@ -318,12 +325,12 @@
 			const res = await fetch(`/api/jobs/${job.id}/score`, { method: 'POST' });
 			const body = await res.json().catch(() => ({}));
 			if (res.ok) {
-				status = { kind: 'success', text: `Score calculado: ${body.score_fit}/100` };
+				status = { kind: 'success', text: t('jobs.flash.scored', { score: body.score_fit }) };
 			} else {
-				status = { kind: 'error', text: body.error ?? `Erro ${res.status} no score.` };
+				status = { kind: 'error', text: errorText(body, t('jobs.error.score_http', { status: res.status })) };
 			}
 		} catch {
-			status = { kind: 'error', text: 'Falha de rede ao calcular score.' };
+			status = { kind: 'error', text: t('jobs.error.score_network') };
 		} finally {
 			scoringId = null;
 			await loadJobs();
@@ -337,10 +344,10 @@
 			const body = await res.json().catch(() => ({}));
 			// Apenas feedback: sem redirect e sem recarregar a lista (UX contínua).
 			toast(res.ok ? 'success' : 'error', res.ok
-				? `${job.title} aprovada e enviada para candidaturas.`
-				: body.error ?? `Erro ${res.status} ao aprovar.`);
+				? t('jobs.flash.approved', { title: job.title })
+				: errorText(body, t('jobs.error.approve_http', { status: res.status })));
 		} catch {
-			toast('error', 'Falha de rede ao aprovar.');
+			toast('error', t('jobs.error.approve_network'));
 		} finally {
 			actingId = null;
 		}
@@ -353,14 +360,14 @@
 			const res = await fetch(`/api/jobs/${job.id}/discard`, { method: 'POST' });
 			const body = await res.json().catch(() => ({}));
 			if (res.ok) {
-				status = { kind: 'success', text: 'Vaga descartada.' };
+				status = { kind: 'success', text: t('jobs.flash.discarded') };
 				detailJob = null;
 				await loadJobs();
 			} else {
-				status = { kind: 'error', text: body.error ?? `Erro ${res.status} ao descartar.` };
+				status = { kind: 'error', text: errorText(body, t('jobs.error.discard_http', { status: res.status })) };
 			}
 		} catch {
-			status = { kind: 'error', text: 'Falha de rede ao descartar.' };
+			status = { kind: 'error', text: t('jobs.error.discard_network') };
 		} finally {
 			actingId = null;
 		}
@@ -409,7 +416,7 @@
 	async function runBatch(action: 'score' | 'approve' | 'discard'): Promise<void> {
 		const targets = jobs.filter((job) => selectedIds.includes(job.id));
 		if (targets.length === 0) return;
-		const verb = { score: 'Score calculado', approve: 'Aprovada', discard: 'Descartada' }[action];
+		const verb = t(`jobs.flash.batch_verb_${action}`);
 		let ok = 0;
 		for (const job of targets) {
 			try {
@@ -421,7 +428,7 @@
 		}
 		const failures = targets.length - ok;
 		toast(failures > 0 ? 'error' : 'success',
-			`${verb}: ${ok} de ${targets.length} vaga(s).${failures > 0 ? ` ${failures} falha(s).` : ''}`);
+			t('jobs.flash.batch', { verb, ok, total: targets.length, failures }));
 		if (action !== 'approve') {
 			if (action === 'discard') clearSelection();
 			await loadJobs();
@@ -430,7 +437,7 @@
 </script>
 
 <svelte:head>
-	<title>Vagas · openJob</title>
+	<title>{t('jobs.meta_title')}</title>
 </svelte:head>
 
 
@@ -439,11 +446,11 @@
 		<strong>{job.title}</strong>
 	{:else if column.key === 'score'}
 		<Badge tone={job.score_fit === null ? 'neutral' : scoreTone(job.score_fit)}>
-			{job.score_fit === null ? 'sem score' : `${job.score_fit}/100`}
+			{job.score_fit === null ? t('jobs.no_score') : `${job.score_fit}/100`}
 		</Badge>
 	{:else if column.key === 'status'}
 		<Badge tone={job.status === 'approved' ? 'success' : job.status === 'discarded' ? 'error' : 'primary'}>
-			{STATUS_LABELS[job.status] ?? job.status}
+			{statusLabel(job.status)}
 		</Badge>
 	{:else}
 		{column.value?.(job) ?? ''}
@@ -452,12 +459,12 @@
 
 {#snippet newJobForm()}
 	<form id="new-job-form" onsubmit={(e) => { e.preventDefault(); save(); }}>
-		<Field label="URL da vaga" for="url">
+		<Field label={t('jobs.form.url')} for="url">
 			<div class="url-row">
-				<Input
+				<input
 					id="url"
 					type="url"
-					placeholder="https://jobs.example.com/vaga"
+					placeholder={t('jobs.form.url_placeholder')}
 					bind:value={url}
 					onpaste={onUrlPaste}
 					spellcheck="false"
@@ -469,66 +476,66 @@
 					disabled={!/^https?:\/\//.test(url.trim())}
 					onclick={() => fetchDraft(url)}
 				>
-					Preencher
+					{t('jobs.form.fill')}
 				</Button>
 			</div>
 		</Field>
-		<Field label="Título" for="title">
-			<Input id="title" bind:value={title} placeholder="Senior Go Developer" />
+		<Field label={t('jobs.form.title')} for="title">
+			<input id="title" bind:value={title} placeholder={t('jobs.form.title_placeholder')} />
 		</Field>
-		<Field label="Empresa" for="company">
-			<Input id="company" bind:value={company} placeholder="Acme Corp" />
+		<Field label={t('jobs.col.company')} for="company">
+			<input id="company" bind:value={company} placeholder={t('jobs.form.company_placeholder')} />
 		</Field>
-		<Field label="Descrição da vaga (JD)" for="description">
-			<Textarea id="description" rows={6} bind:value={description} placeholder="Cole aqui a descrição completa da vaga — HTML é limpo automaticamente." />
+		<Field label={t('jobs.form.jd')} for="description">
+			<Textarea id="description" rows={6} bind:value={description} placeholder={t('jobs.form.jd_placeholder')} />
 		</Field>
 	</form>
 {/snippet}
 
 {#snippet filterIcons()}
 	{#if hasActiveFilters}
-		<IconButton icon="x" label="Limpar filtros" variant="ghost" onclick={clearFilters} />
+		<IconButton icon="x" label={t('jobs.filters.clear')} variant="ghost" onclick={clearFilters} />
 	{/if}
-	<IconButton icon="check-double" label="Marcar todas as vagas" variant="ghost" onclick={selectAllFiltered} />
-	<IconLinkButton href="/settings/sources" icon="settings" label="Configurar fontes de vagas" />
+	<IconButton icon="check-double" label={t('jobs.filters.select_all')} variant="ghost" onclick={selectAllFiltered} />
+	<IconLinkButton href="/settings/sources" icon="settings" label={t('jobs.filters.configure_sources')} />
 {/snippet}
 
 {#snippet filterFields(prefix: string)}
-	<Field label="Status" for="{prefix}-status">
+	<Field label={t('common.status')} for="{prefix}-status">
 		<Select id="{prefix}-status" value={statusFilter} onchange={(e) => { statusFilter = e.currentTarget.value; resetPage(); }} options={statusOptions} />
 	</Field>
-	<Field label="Fonte (múltipla)">
-		<MultiSelect label="Filtrar por fonte" options={sourceOptions} bind:value={sourceFilter} allLabel="Todas as fontes" onchange={resetPage} />
+	<Field label={t('jobs.filters.source_multi')}>
+		<MultiSelect label={t('jobs.filters.source_button')} options={sourceOptions} bind:value={sourceFilter} allLabel={t('jobs.filters.all_sources')} onchange={resetPage} />
 	</Field>
-	<Field label="Buscar nas vagas" for="{prefix}-search">
-		<Input id="{prefix}-search" type="search" bind:value={searchTerm} oninput={resetPage} placeholder="Título, empresa ou descrição" />
+	<Field label={t('jobs.filters.search')} for="{prefix}-search">
+		<input id="{prefix}-search" type="search" bind:value={searchTerm} oninput={resetPage} placeholder={t('jobs.filters.search_placeholder')} />
 	</Field>
 {/snippet}
 
 <PageHeader
-	title="Vagas"
-	subtitle="O openJob consulta APIs públicas de vagas e aplica suas palavras-chave como filtro inicial."
-	breadcrumb={[{ label: 'Início', href: '/' }, { label: 'Vagas' }]}
+	title={t('common.jobs')}
+	subtitle={t('jobs.subtitle')}
+	breadcrumb={[{ label: t('common.home'), href: '/' }, { label: t('common.jobs') }]}
 >
 	{#snippet actions()}
 		<Button onclick={triggerDiscovery} loading={discovering}>
 			<Icon name="sparkles" size={20} />
-			{discovering ? 'Buscando…' : 'Buscar agora'}
+			{discovering ? t('jobs.searching') : t('jobs.search_now')}
 		</Button>
 		<Button variant="secondary" onclick={() => (newJobOpen = true)}>
 			<Icon name="plus" size={20} />
-			Nova Vaga
+			{t('jobs.new')}
 		</Button>
 	{/snippet}
 </PageHeader>
 
 {#if status}
-	<Alert severity={status.kind} title={status.kind === 'error' ? 'Atenção' : 'Sucesso'}>{status.text}</Alert>
+	<Alert severity={status.kind} title={status.kind === 'error' ? t('common.attention') : t('common.success')}>{status.text}</Alert>
 {/if}
 
 {#if !llmConfigured}
-	<Alert severity="warning" title="Provedor de IA não configurado">
-		O botão Score precisa da sua chave. <a href="/settings">Configurar</a>
+	<Alert severity="warning" title={t('jobs.provider_warning_title')}>
+		O botão {t('common.score')} precisa da sua chave. <a href="/settings">Configurar</a>
 	</Alert>
 {/if}
 
@@ -536,24 +543,24 @@
 	<div class="keywords-strip-inner">
 		<span class="keywords-icon"><Icon name="sliders" size={20} /></span>
 		<div class="keywords-copy">
-			<strong>Palavras-chave configuradas</strong>
+			<strong>{t('jobs.keywords_label')}</strong>
 			<span class="hint">
 				{discoveryKeywords.length > 0
 					? discoveryKeywords.join(' · ')
-					: 'nenhuma — todas as vagas retornadas serão avaliadas'}
+					: t('jobs.keywords_empty')}
 			</span>
 		</div>
-		<IconLinkButton href="/settings/discovery" icon="external" label="Configurar busca e filtros" />
+		<IconLinkButton href="/settings/discovery" icon="external" label={t('jobs.configure_search')} />
 	</div>
 </Card>
 
 
-<section aria-label="Vagas cadastradas" class="jobs-section">
+<section aria-label={t('jobs.list.title')} class="jobs-section">
 	<div class="list-head">
-		<p class="hint count-mobile">{sortedJobs.length} vagas</p>
+		<p class="hint count-mobile">{t('jobs.list.count', { count: sortedJobs.length })}</p>
 		<div class="list-actions">
 			<Button variant="ghost" onclick={() => (filtersOpen = true)} class="filters-trigger">
-				<Icon name="sliders" size={20} /> Filtros
+				<Icon name="sliders" size={20} /> {t('common.filters')}
 			</Button>
 			<div class="mobile-filter-actions">{@render filterIcons()}</div>
 		</div>
@@ -565,20 +572,20 @@
 	</div>
 
 	{#if loading}
-		<Card><p class="hint">Carregando vagas…</p></Card>
+		<Card><p class="hint">{t('jobs.list.loading')}</p></Card>
 	{:else if jobs.length === 0}
 		<Card>
 			<EmptyState
-				title="Nenhuma vaga ainda"
-				description="Use o botão “Nova Vaga” para cadastrar a primeira ou a descoberta automática."
+				title={t('jobs.empty.title')}
+				description={t('jobs.empty.desc')}
 			>
-				<Button variant="secondary" size="sm" onclick={() => (newJobOpen = true)}>Nova Vaga</Button>
+				<Button variant="secondary" size="sm" onclick={() => (newJobOpen = true)}>{t('jobs.new')}</Button>
 			</EmptyState>
 		</Card>
 	{:else if filteredJobs.length === 0}
 		<Card>
-			<EmptyState title="Nenhuma vaga com esses filtros" description="Ajuste os filtros para ver mais resultados.">
-				<Button variant="secondary" size="sm" onclick={clearFilters}>Limpar filtros</Button>
+			<EmptyState title={t('jobs.empty.filtered_title')} description={t('jobs.empty.filtered_desc')}>
+				<Button variant="secondary" size="sm" onclick={clearFilters}>{t('jobs.filters.clear')}</Button>
 			</EmptyState>
 		</Card>
 	{:else}
@@ -586,7 +593,7 @@
 			columns={columns}
 			rows={visibleJobs}
 			getKey={(job) => job.id}
-			caption="Vagas cadastradas"
+			caption={t('jobs.list.title')}
 			onrowclick={openDetail}
 			render={renderCell}
 			selectable
@@ -605,7 +612,7 @@
 {#snippet barLeading(size: 'sm' | 'md')}
 	<IconButton
 		icon="check"
-		label="Aprovar vagas selecionadas"
+		label={t('jobs.batch.approve')}
 		variant="primary"
 		size={size}
 		disabled={selectedIds.length === 0}
@@ -613,7 +620,7 @@
 	/>
 	<IconButton
 		icon="sparkles"
-		label="Calcular score das vagas selecionadas"
+		label={t('jobs.batch.score')}
 		variant="secondary"
 		size={size}
 		disabled={selectedIds.length === 0}
@@ -624,7 +631,7 @@
 {#snippet barActions(size: 'sm' | 'md')}
 	<IconButton
 		icon="trash"
-		label="Descartar vagas selecionadas"
+		label={t('jobs.batch.discard')}
 		variant="danger"
 		size={size}
 		disabled={selectedIds.length === 0}
@@ -642,7 +649,7 @@
 			page={currentPage}
 			totalPages={totalPages}
 			onchange={goToPage}
-			label="Paginação e ações de vagas"
+			label={t('jobs.batch.pagination')}
 			leading={barLeading}
 			actions={barActions}
 			count={barCount}
@@ -650,41 +657,41 @@
 	</PageFooter>
 {:else if selectedIds.length > 0}
 	<!-- No mobile as ações em lote flutuam sobre a lista quando há seleção. -->
-	<div class="mobile-actions" role="toolbar" aria-label="Ações em lote">
-		<span class="selection-count">{selectedIds.length} selecionada(s)</span>
-		<IconButton icon="check" label="Aprovar vagas selecionadas" variant="primary" onclick={() => runBatch('approve')} />
-		<IconButton icon="sparkles" label="Calcular score das vagas selecionadas" variant="secondary" onclick={() => runBatch('score')} />
-		<IconButton icon="trash" label="Descartar vagas selecionadas" variant="danger" onclick={() => runBatch('discard')} />
+	<div class="mobile-actions" role="toolbar" aria-label={t('jobs.batch.actions')}>
+		<span class="selection-count">{t('jobs.batch.selected', { count: selectedIds.length })}</span>
+		<IconButton icon="check" label={t('jobs.batch.approve')} variant="primary" onclick={() => runBatch('approve')} />
+		<IconButton icon="sparkles" label={t('jobs.batch.score')} variant="secondary" onclick={() => runBatch('score')} />
+		<IconButton icon="trash" label={t('jobs.batch.discard')} variant="danger" onclick={() => runBatch('discard')} />
 	</div>
 {/if}
 
-<Dialog open={newJobOpen} onclose={() => (newJobOpen = false)} title="Nova Vaga" description="Cole o link — os dados são preenchidos para revisão antes de salvar.">
+<Dialog open={newJobOpen} onclose={() => (newJobOpen = false)} title={t('jobs.new')} description={t('jobs.dialog.new_desc')}>
 	{@render newJobForm()}
 	{#snippet footer()}
-		<Button variant="ghost" onclick={() => (newJobOpen = false)}>Cancelar</Button>
-		<Button type="submit" form="new-job-form" loading={saving} disabled={!canSave}>Salvar vaga</Button>
+		<Button variant="ghost" onclick={() => (newJobOpen = false)}>{t('common.cancel')}</Button>
+		<Button type="submit" form="new-job-form" loading={saving} disabled={!canSave}>{t('jobs.dialog.save')}</Button>
 	{/snippet}
 </Dialog>
 
-<Dialog open={filtersOpen} onclose={() => (filtersOpen = false)} title="Filtrar vagas">
+<Dialog open={filtersOpen} onclose={() => (filtersOpen = false)} title={t('jobs.dialog.filter_title')}>
 	<div class="filter-sheet">
 		{@render filterFields('sheet')}
 	</div>
 	{#snippet footer()}
-		<Button variant="ghost" onclick={clearFilters}>Limpar</Button>
-		<Button onclick={() => (filtersOpen = false)}>Aplicar</Button>
+		<Button variant="ghost" onclick={clearFilters}>{t('common.clear')}</Button>
+		<Button onclick={() => (filtersOpen = false)}>{t('common.apply')}</Button>
 	{/snippet}
 </Dialog>
 
 {#if detailJob}
 	<Drawer
-		title="Detalhe da vaga"
+		title={t('jobs.dialog.detail_title')}
 		description={detailJob.company}
 		onclose={() => (detailJob = null)}
 	>
 		<JobDetail job={detailJob} />
 		{#snippet footer()}
-			<a class="full-link" href={`/jobs/${detailJob!.id}`}>Abrir página completa</a>
+			<a class="full-link" href={`/jobs/${detailJob!.id}`}>{t('jobs.dialog.open_full')}</a>
 		{/snippet}
 	</Drawer>
 {/if}

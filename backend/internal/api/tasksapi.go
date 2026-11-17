@@ -99,8 +99,8 @@ func (t *tasksAPI) list(w http.ResponseWriter, r *http.Request) {
 	}
 	counts, _ := t.repo.CountTasksByStatus(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{
-		"tasks":        out,
-		"next_cursor":  next,
+		"tasks":         out,
+		"next_cursor":   next,
 		"status_counts": counts,
 	})
 }
@@ -110,7 +110,7 @@ func (t *tasksAPI) list(w http.ResponseWriter, r *http.Request) {
 func (t *tasksAPI) get(w http.ResponseWriter, r *http.Request) {
 	task, err := t.repo.GetTask(r.Context(), chi.URLParam(r, "id"))
 	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "tarefa não encontrada"})
+		writeAPIError(w, http.StatusNotFound, "task.not_found", "task not found", map[string]any{"id": chi.URLParam(r, "id")})
 		return
 	}
 	if err != nil {
@@ -127,7 +127,7 @@ func (t *tasksAPI) cancel(w http.ResponseWriter, r *http.Request) {
 	task, err := t.pool.CancelTask(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "tarefa não encontrada"})
+			writeAPIError(w, http.StatusNotFound, "task.not_found", "task not found", map[string]any{"id": chi.URLParam(r, "id")})
 			return
 		}
 		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
@@ -142,10 +142,10 @@ func (t *tasksAPI) retry(w http.ResponseWriter, r *http.Request) {
 	task, err := t.pool.RetryTask(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "tarefa não encontrada"})
+			writeAPIError(w, http.StatusNotFound, "task.not_found", "task not found", map[string]any{"id": chi.URLParam(r, "id")})
 			return
 		}
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "só tarefas failed ou cancelled podem ser reenfileiradas"})
+		writeAPIError(w, http.StatusConflict, "task.not_requeueable", "only failed or cancelled tasks can be requeued", nil)
 		return
 	}
 	writeJSON(w, http.StatusOK, taskPayload(task))

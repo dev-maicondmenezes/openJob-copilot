@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
 	import Icon from './Icon.svelte';
 
 	interface MenuItem {
@@ -14,7 +15,7 @@
 		label?: string;
 	}
 
-	let { items, label = 'Mais ações' }: Props = $props();
+	let { items, label }: Props = $props();
 
 	let open = $state(false);
 	let root: HTMLDivElement;
@@ -30,7 +31,7 @@
 	<button
 		type="button"
 		class="trigger"
-		aria-label={label}
+		aria-label={label ?? t('ui.more_actions')}
 		aria-haspopup="menu"
 		aria-expanded={open}
 		onclick={() => (open = !open)}
@@ -39,7 +40,7 @@
 		<Icon name="ellipsis" size={20} />
 	</button>
 	{#if open}
-		<div class="list" role="menu" aria-label={label}>
+		<div class="list" role="menu" aria-label={label ?? t('ui.more_actions')}>
 			{#each items as item (item.label)}
 				<button
 					type="button"

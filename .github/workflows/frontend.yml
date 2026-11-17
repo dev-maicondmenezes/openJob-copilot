@@ -1,4 +1,4 @@
-name: frontend (design system CP12)
+name: frontend (design system CP12 + dark mode/i18n CP13)
 
 on:
   push:
@@ -20,6 +20,8 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run check
+      # CP13: falha se faltar chave em pt-BR/es-419 ou placeholders divergirem.
+      - run: npm run i18n:check
       # PR falha se usar cor/spacing/raio fora dos tokens em src/routes/.
       - run: npm run lint:ui
       - run: npm run build

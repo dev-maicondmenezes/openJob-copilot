@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
 	import type { Snippet } from 'svelte';
 
 	interface Props {
@@ -14,10 +15,10 @@
 <h1 class="page-title">{title}</h1>
 <p class="page-subtitle">{subtitle}</p>
 
-<section class="stub" aria-label="Stub desta tela">
-	<span class="badge">stub</span>
+<section class="stub" aria-label={t('stub.title')}>
+	<span class="badge">{t('stub.label')}</span>
 	<p class="emoji">{emoji}</p>
-	<p class="hint">Conteúdo chega em um checkpoint posterior — a API ainda não é consumida.</p>
+	<p class="hint">{t('stub.desc')}</p>
 	{#if children}
 		{@render children()}
 	{/if}

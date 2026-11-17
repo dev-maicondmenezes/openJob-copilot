@@ -1,9 +1,11 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
+	import { formatDate } from '#lib/i18n/format.js';
 	import type { Snippet } from 'svelte';
 	import Badge from '#lib/ui/Badge.svelte';
 	import Panel from '#lib/ui/Panel.svelte';
 	import Icon from '#lib/ui/Icon.svelte';
-	import { SOURCE_LABELS, STATUS_LABELS, scoreTone, type Job } from '#lib/types/job.js';
+	import { SOURCE_LABELS, statusLabel, scoreTone, type Job } from '#lib/types/job.js';
 
 	interface Props {
 		job: Job;
@@ -17,7 +19,7 @@
 	<div class="title-row">
 		<h2>{job.title}</h2>
 		<Badge tone={job.status === 'approved' ? 'success' : job.status === 'discarded' ? 'error' : 'neutral'}>
-			{STATUS_LABELS[job.status] ?? job.status}
+			{statusLabel(job.status)}
 		</Badge>
 	</div>
 
@@ -28,11 +30,11 @@
 			<Badge tone="info">{SOURCE_LABELS[job.source] ?? job.source}</Badge>
 		{/if}
 		{#if job.score_fit !== null}
-			<Badge tone={scoreTone(job.score_fit)}>Score {job.score_fit}/100</Badge>
+			<Badge tone={scoreTone(job.score_fit)}>{t('common.score')} {job.score_fit}/100</Badge>
 		{:else}
-			<Badge>sem score</Badge>
+			<Badge>{t('jobs.no_score')}</Badge>
 		{/if}
-		<Badge>{new Date(job.created_at).toLocaleDateString('pt-BR')}</Badge>
+		<Badge>{formatDate(job.created_at)}</Badge>
 	</div>
 
 	{#if job.url}
@@ -43,10 +45,10 @@
 	{/if}
 
 	{#if (job.matched_keywords?.length ?? 0) > 0 || (job.matched_resume_terms?.length ?? 0) > 0}
-		<Panel title="Aderência">
+		<Panel title={t('jobdetail.fit')}>
 			{#if job.matched_keywords?.length}
 				<div class="chips">
-					<span class="chip-label">Palavras-chave:</span>
+					<span class="chip-label">{t('jobdetail.keywords')}</span>
 					{#each job.matched_keywords as kw}
 						<Badge tone="primary">{kw}</Badge>
 					{/each}
@@ -54,7 +56,7 @@
 			{/if}
 			{#if job.matched_resume_terms?.length}
 				<div class="chips">
-					<span class="chip-label">Currículo:</span>
+					<span class="chip-label">{t('jobdetail.resume')}</span>
 					{#each job.matched_resume_terms as term}
 						<Badge tone="success">{term}</Badge>
 					{/each}
@@ -64,13 +66,13 @@
 	{/if}
 
 	{#if job.score_reason}
-		<Panel title="Justificativa do score">
+		<Panel title={t('jobdetail.score_reason')}>
 			<p>{job.score_reason}</p>
 		</Panel>
 	{/if}
 
 	{#if job.description}
-		<Panel title="Descrição da vaga">
+		<Panel title={t('jobdetail.description')}>
 			<p class="description">{job.description}</p>
 		</Panel>
 	{/if}

@@ -1,36 +1,39 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import Icon from './Icon.svelte';
 	import { onShortcut } from '../shortcuts.js';
-	import { FOOTER_NAV, PRIMARY_NAV, SECONDARY_NAV, isActive } from './nav.js';
+	import { primaryNav, secondaryNav, isActive } from './nav.js';
 	import { sidebar } from './sidebar.svelte.js';
 
 	const collapsed = $derived(sidebar.collapsed);
+	const primary = $derived(primaryNav());
+	const secondary = $derived(secondaryNav());
 
 	onMount(() => onShortcut('rail', () => sidebar.toggle()));
 </script>
 
-<aside class="sidebar" class:collapsed aria-label="Navegação lateral">
+<aside class="sidebar" class:collapsed aria-label={t('nav.side')}>
 	<div class="brand-row">
 		<a href="/" class="brand">
 			<span class="mark" aria-hidden="true">oj</span>
-			<span class="word">openJob</span>
-			<span class="visually-hidden">— início</span>
+			<span class="word">{t('common.app_name')}</span>
+			<span class="visually-hidden">{t('nav.home_suffix')}</span>
 		</a>
 		<button
 			type="button"
 			class="collapse-btn"
-			aria-label={collapsed ? 'Expandir menu lateral' : 'Recolher menu lateral'}
-			title={collapsed ? 'Expandir menu ([)' : 'Recolher menu ([)'}
+			aria-label={collapsed ? t('nav.expand_sidebar') : t('nav.collapse_sidebar')}
+			title={collapsed ? t('nav.expand_sidebar_short') : t('nav.collapse_sidebar_short')}
 			onclick={() => sidebar.toggle()}
 		>
 			<Icon name={collapsed ? 'panel-open' : 'panel-close'} size={20} />
 		</button>
 	</div>
 
-	<nav class="nav" aria-label="Navegação principal">
-		{#each PRIMARY_NAV as item (item.href)}
+	<nav class="nav" aria-label={t('nav.main')}>
+		{#each primary as item (item.href)}
 			{@const active = isActive(item.href, page.url.pathname)}
 			<a
 				href={item.href}
@@ -46,7 +49,7 @@
 
 		<div class="divider" role="separator"></div>
 
-		{#each SECONDARY_NAV as item (item.href)}
+		{#each secondary as item (item.href)}
 			{@const active = isActive(item.href, page.url.pathname)}
 			<a
 				href={item.href}
@@ -60,23 +63,6 @@
 			</a>
 		{/each}
 	</nav>
-
-	<div class="footer">
-		<div class="divider" role="separator"></div>
-		{#each FOOTER_NAV as item (item.href)}
-			{@const active = isActive(item.href, page.url.pathname)}
-			<a
-				href={item.href}
-				class="nav-link"
-				class:active
-				aria-current={active ? 'page' : undefined}
-				title={collapsed ? item.label : undefined}
-			>
-				<Icon name={item.icon} size={20} />
-				<span class="text">{item.label}</span>
-			</a>
-		{/each}
-	</div>
 </aside>
 
 <style>
@@ -186,11 +172,6 @@
 		height: 1px;
 		margin: var(--space-3) var(--space-2);
 		background: var(--color-border);
-	}
-
-	.footer {
-		display: flex;
-		flex-direction: column;
 	}
 
 	.collapsed .word,

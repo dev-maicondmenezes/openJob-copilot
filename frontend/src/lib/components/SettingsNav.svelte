@@ -1,5 +1,6 @@
 <script lang="ts">
-	type Section = 'llm' | 'sources' | 'discovery' | 'notifications';
+	import { t } from '#lib/i18n/t.js';
+	type Section = 'llm' | 'sources' | 'discovery' | 'notifications' | 'appearance';
 
 	interface Props {
 		active?: Section;
@@ -7,15 +8,16 @@
 
 	let { active = 'llm' }: Props = $props();
 
-	const links: { key: Section; href: string; label: string; icon: string }[] = [
-		{ key: 'llm', href: '/settings', label: 'Provedor IA (BYOK)', icon: 'key' },
-		{ key: 'sources', href: '/settings/sources', label: 'Fontes de Vagas', icon: 'rss' },
-		{ key: 'discovery', href: '/settings/discovery', label: 'Busca & Filtros', icon: 'sliders' },
-		{ key: 'notifications', href: '/settings/notifications', label: 'Notificações & Tarefas', icon: 'bell' }
-	];
+	const links = $derived<{ key: Section; href: string; label: string; icon: string }[]>([
+		{ key: 'llm', href: '/settings', label: t('nav.settings_llm'), icon: 'key' },
+		{ key: 'sources', href: '/settings/sources', label: t('nav.settings_sources'), icon: 'rss' },
+		{ key: 'discovery', href: '/settings/discovery', label: t('nav.settings_discovery'), icon: 'sliders' },
+		{ key: 'notifications', href: '/settings/notifications', label: t('nav.settings_notifications'), icon: 'bell' },
+		{ key: 'appearance', href: '/settings/appearance', label: t('nav.settings_appearance'), icon: 'palette' }
+	]);
 </script>
 
-<nav class="settings-nav" aria-label="Seções de configuração">
+<nav class="settings-nav" aria-label={t('nav.settings_sections')}>
 	{#each links as link (link.key)}
 		<a
 			href={link.href}

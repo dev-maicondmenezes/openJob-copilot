@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
+	import { errorText } from '#lib/i18n/errors.js';
+	import { formatDateTime } from '#lib/i18n/format.js';
 	import { onMount } from 'svelte';
 	import MarkdownView from '#lib/components/MarkdownView.svelte';
 	import { computeUnifiedDiff, computeSideBySideDiff, type DiffLine, type SideBySideRow } from '../../lib/diff';
@@ -59,7 +62,7 @@
 
 	const selectedJob = $derived(pendingJobs.find((job) => String(job.id) === selectedJobId) ?? null);
 	const jobOptions = $derived([
-		{ value: '', label: 'Selecione uma vaga pendente…' },
+		{ value: '', label: t('curriculum.tailoring.select_job') },
 		...pendingJobs.map((job) => ({ value: String(job.id), label: `${job.title} · ${job.company}` }))
 	]);
 
@@ -84,7 +87,7 @@
 			const res = await fetch('/api/curriculum');
 			if (res.ok) activeCV = (await res.json()).curriculum;
 		} catch {
-			status = { kind: 'error', text: 'Falha ao carregar currículo ativo.' };
+			status = { kind: 'error', text: t('curriculum.error.load') };
 		}
 	}
 
@@ -107,12 +110,12 @@
 					uploaded_at: body.uploaded_at ?? new Date().toISOString()
 				};
 				showBasePreview = true;
-				status = { kind: 'success', text: `Currículo "${file.name}" processado e salvo com sucesso!` };
+				status = { kind: 'success', text: t('curriculum.error.uploaded', { file: file.name }) };
 			} else {
-				status = { kind: 'error', text: body.error ?? `Erro ${res.status} no upload.` };
+				status = { kind: 'error', text: errorText(body, t('curriculum.error.upload_http', { status: res.status })) };
 			}
 		} catch {
-			status = { kind: 'error', text: 'Falha de rede ao enviar currículo.' };
+			status = { kind: 'error', text: t('curriculum.error.upload_network') };
 		} finally {
 			uploading = false;
 			if (fileInput) fileInput.value = '';
@@ -121,15 +124,15 @@
 
 	async function generateTailored() {
 		if (!activeCV) {
-			status = { kind: 'error', text: 'Faça upload de um currículo-base primeiro.' };
+			status = { kind: 'error', text: t('curriculum.error.no_base') };
 			return;
 		}
 		if (!jdText.trim()) {
-			status = { kind: 'error', text: 'Cole a descrição da vaga (JD) para adaptar o currículo.' };
+			status = { kind: 'error', text: t('curriculum.error.no_jd') };
 			return;
 		}
 		if (!llmConfigured) {
-			status = { kind: 'error', text: 'Chave de IA não configurada. Acesse Configurações para adicioná-la.' };
+			status = { kind: 'error', text: t('curriculum.error.no_key') };
 			return;
 		}
 		tailoring = true;
@@ -144,12 +147,12 @@
 			if (res.ok) {
 				tailoredMD = body.tailored_md;
 				promptVersion = body.prompt_version ?? 'v1';
-				status = { kind: 'success', text: 'Currículo adaptado com sucesso para a vaga!' };
+				status = { kind: 'success', text: t('curriculum.error.tailored') };
 			} else {
-				status = { kind: 'error', text: body.error ?? `Erro ${res.status} ao adaptar currículo.` };
+				status = { kind: 'error', text: errorText(body, t('curriculum.error.tailor_http', { status: res.status })) };
 			}
 		} catch {
-			status = { kind: 'error', text: 'Falha de rede ao conectar ao serviço de IA.' };
+			status = { kind: 'error', text: t('curriculum.error.tailor_network') };
 		} finally {
 			tailoring = false;
 		}
@@ -182,13 +185,13 @@
 </script>
 
 <svelte:head>
-	<title>Currículo · openJob</title>
+	<title>{t('curriculum.meta_title')}</title>
 </svelte:head>
 
 <PageHeader
-	title="Currículo & Adaptação"
-	subtitle="Upload do currículo-base (PDF, MD ou TXT) e geração de versões adaptadas com IA para cada vaga."
-	breadcrumb={[{ label: 'Início', href: '/' }, { label: 'Currículo' }]}
+	title={t('curriculum.title')}
+	subtitle={t('curriculum.subtitle_full')}
+	breadcrumb={[{ label: t('common.home'), href: '/' }, { label: t('common.curriculum') }]}
 />
 
 {#if status}
@@ -196,20 +199,20 @@
 {/if}
 
 {#if !llmConfigured && !loadingCV}
-	<Alert severity="warning" title="Provedor de IA não configurado">
-		Você pode enviar o currículo, mas precisa configurar a chave em <a href="/settings">Configurações</a> para gerar adaptações.
+	<Alert severity="warning" title={t('jobs.provider_warning_title')}>
+		{t('curriculum.warning.body')}
 	</Alert>
 {/if}
 
 <div class="grid grid-2 curriculum-grid">
-	<Card title="Currículo Base" subtitle="Uma versão ativa por vez (novo upload substitui a anterior).">
+	<Card title={t('curriculum.base.title')} subtitle={t('curriculum.base.one_active')}>
 		{#snippet actions()}
-			<Badge tone={activeCV ? 'success' : 'warning'}>{activeCV ? 'ativo' : 'nenhum'}</Badge>
+			<Badge tone={activeCV ? 'success' : 'warning'}>{activeCV ? t('curriculum.base.active') : t('curriculum.base.none')}</Badge>
 		{/snippet}
 		<input
 			type="file"
 			id="cv-file"
-			aria-label="Selecionar arquivo de currículo"
+			aria-label={t('curriculum.base.select_file')}
 			accept=".pdf,.md,.markdown,.txt"
 			bind:this={fileInput}
 			onchange={handleFileUpload}
@@ -219,24 +222,24 @@
 			<div class="file-info">
 				<span class="file-icon"><Icon name="file" size={24} /></span>
 				<div class="file-text">
-					<strong>{activeCV.source_filename || 'curriculo.md'}</strong>
+					<strong>{activeCV.source_filename || t('curriculum.base.filename')}</strong>
 					<span class="hint">
-						{new Date(activeCV.uploaded_at).toLocaleString('pt-BR')} · {activeCV.content_md.length} caracteres
+						{formatDateTime(activeCV.uploaded_at)} · {activeCV.content_md.length} {t('curriculum.base.chars')}
 					</span>
 				</div>
 			</div>
 			<div class="actions">
-				<Button variant="secondary" loading={uploading} onclick={() => fileInput?.click()}>Substituir arquivo</Button>
+				<Button variant="secondary" loading={uploading} onclick={() => fileInput?.click()}>{t('curriculum.base.replace')}</Button>
 				<Button variant="ghost" onclick={() => (showBasePreview = !showBasePreview)}>
-					{showBasePreview ? 'Ocultar preview' : 'Visualizar base'}
+					{showBasePreview ? t('curriculum.base.hide_preview') : t('curriculum.base.show_preview')}
 				</Button>
 			</div>
 			{#if showBasePreview}
 				<div class="preview-box">
 					<div class="preview-head">
-						<span>Preview do Currículo Base</span>
+						<span>{t('curriculum.base.preview_title')}</span>
 						<Button type="button" variant="link" size="sm" onclick={() => (rawBaseView = !rawBaseView)}>
-							{rawBaseView ? 'Modo renderizado' : 'Modo Markdown bruto'}
+							{rawBaseView ? t('curriculum.base.rendered') : t('curriculum.base.raw')}
 						</Button>
 					</div>
 					<div class="preview-content">
@@ -250,43 +253,43 @@
 			{/if}
 		{:else}
 			<div class="empty-upload">
-				<p>Selecione seu currículo em <strong>PDF</strong>, <strong>Markdown (.md)</strong> ou <strong>TXT</strong>.</p>
-				<Button loading={uploading} onclick={() => fileInput?.click()}>Selecionar currículo</Button>
+				<p>{t('curriculum.base.hint')}</p>
+				<Button loading={uploading} onclick={() => fileInput?.click()}>{t('curriculum.base.select')}</Button>
 			</div>
 		{/if}
 	</Card>
 
-	<Card title="Adaptação com IA (Tailoring)" subtitle="Escolha uma vaga pendente ou cole a descrição para realinhar realizações e palavras-chave.">
+	<Card title={t('curriculum.tailoring.title')} subtitle={t('curriculum.tailoring.subtitle')}>
 		{#snippet actions()}
-			{#if promptVersion}<Badge tone="info">prompt {promptVersion}</Badge>{/if}
+			{#if promptVersion}<Badge tone="info">{t('curriculum.tailoring.prompt', { version: promptVersion })}</Badge>{/if}
 		{/snippet}
 		<form onsubmit={(e) => { e.preventDefault(); generateTailored(); }}>
-			<Field label="Vaga pendente" for="tailoring-job" hint={pendingJobs.length === 0 ? 'Nenhuma vaga pendente — cadastre uma em Vagas.' : undefined}>
+			<Field label="{t('jobs.col.job')} pendente" for="tailoring-job" hint={pendingJobs.length === 0 ? t('curriculum.tailoring.no_job') : undefined}>
 				<Select id="tailoring-job" options={jobOptions} value={selectedJobId} onchange={(e) => selectJob(e.currentTarget.value)} />
 			</Field>
 			{#if selectedJob}
-				<Panel title="Vaga selecionada">
+				<Panel title={t('curriculum.tailoring.selected')}>
 					<div class="selected-job">
 						<strong>{selectedJob.title}</strong>
 						<span class="hint">{selectedJob.company}</span>
 						{#if selectedJob.score_fit !== null}
-							<Badge tone="info">Score {selectedJob.score_fit}/100</Badge>
+							<Badge tone="info">{t('common.score')} {t('jobdetail.score_label', { score: selectedJob.score_fit })}</Badge>
 						{/if}
 					</div>
 				</Panel>
 			{/if}
-			<Field label="Descrição da vaga (Job Description)" for="jd_text" hint="Preenchida automaticamente a partir da vaga selecionada — você pode editar.">
+			<Field label={t('curriculum.tailoring.jd')} for="jd_text" hint={t('curriculum.tailoring.jd_hint')}>
 				<Textarea
 					id="jd_text"
 					rows={8}
 					bind:value={jdText}
 					disabled={tailoring}
-					placeholder="Cole aqui o texto da vaga (requisitos, responsabilidades, tecnologias desejadas)..."
+					placeholder={t('curriculum.tailoring.jd_placeholder')}
 				/>
 			</Field>
 			<div class="actions">
 				<Button type="submit" loading={tailoring} disabled={!activeCV || !jdText.trim() || !llmConfigured}>
-					Gerar versão adaptada
+					{t('curriculum.tailoring.generate')}
 				</Button>
 			</div>
 		</form>
@@ -294,24 +297,24 @@
 </div>
 
 {#if tailoredMD}
-	<Card title="Resultado Adaptado & Comparação" subtitle="Compare as alterações sugeridas pela IA com seu currículo original.">
+	<Card title={t('curriculum.result.title')} subtitle={t('curriculum.result.desc')}>
 		{#snippet actions()}
 			<SegmentedControl
 				options={[
-					{ value: 'diff', label: 'Diff' },
-					{ value: 'side-by-side', label: 'Lado a lado' },
-					{ value: 'preview', label: 'Renderizado' }
+					{ value: 'diff', label: t('curriculum.result.diff') },
+					{ value: 'side-by-side', label: t('curriculum.result.side_by_side') },
+					{ value: 'preview', label: t('curriculum.result.rendered') }
 				]}
 				value={diffMode}
-				label="Modo de comparação"
+				label={t('curriculum.result.mode')}
 				onchange={(value) => (diffMode = value as typeof diffMode)}
 			/>
 		{/snippet}
 		<div class="result-toolbar">
 			<Button variant="secondary" size="sm" onclick={copyTailoredMarkdown}>
-				{copyFeedback ? '✓ Copiado!' : 'Copiar Markdown'}
+				{copyFeedback ? t('curriculum.result.copied') : t('curriculum.result.copy')}
 			</Button>
-			<Button variant="ghost" size="sm" onclick={downloadTailoredMarkdown}>Baixar .md</Button>
+			<Button variant="ghost" size="sm" onclick={downloadTailoredMarkdown}>{t('curriculum.result.download')}</Button>
 		</div>
 		<div class="diff-container">
 			{#if diffMode === 'diff'}
@@ -325,7 +328,7 @@
 				</div>
 			{:else if diffMode === 'side-by-side'}
 				<div class="side-by-side-wrapper">
-					<div class="sbs-header"><span>Currículo Base</span><span>Currículo Adaptado</span></div>
+					<div class="sbs-header"><span>{t('curriculum.base.title')}</span><span>{t('curriculum.result.tailored')}</span></div>
 					{#each sideBySideDiff as row}
 						<div class="sbs-row">
 							<div class="sbs-col left {row.left?.type ?? ''}">

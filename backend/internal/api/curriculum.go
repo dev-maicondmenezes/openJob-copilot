@@ -112,7 +112,7 @@ type saveCurriculumRequest struct {
 func (c *curriculumAPI) saveCurriculumText(w http.ResponseWriter, r *http.Request) {
 	var req saveCurriculumRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSON inválido"})
+		writeAPIError(w, http.StatusBadRequest, "invalid_json", "invalid JSON", nil)
 		return
 	}
 
@@ -149,7 +149,7 @@ func (c *curriculumAPI) tailorCurriculum(w http.ResponseWriter, r *http.Request)
 	r.Body = http.MaxBytesReader(w, r.Body, maxSettingsBody)
 	var req tailorRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSON inválido"})
+		writeAPIError(w, http.StatusBadRequest, "invalid_json", "invalid JSON", nil)
 		return
 	}
 
@@ -160,7 +160,7 @@ func (c *curriculumAPI) tailorCurriculum(w http.ResponseWriter, r *http.Request)
 	if req.JobID > 0 {
 		job, err := c.repo.GetJob(ctx, req.JobID)
 		if errors.Is(err, store.ErrNotFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "vaga não encontrada"})
+			writeAPIError(w, http.StatusNotFound, "job.not_found", "job not found", map[string]any{"id": req.JobID})
 			return
 		}
 		if err != nil {

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
+	import { errorText } from '#lib/i18n/errors.js';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -25,12 +27,12 @@
 		error = '';
 		try {
 			const res = await fetch('/api/jobs');
-			if (!res.ok) throw new Error(`Erro ${res.status}`);
+			if (!res.ok) throw new Error(t('jobdetail.error_http', { status: res.status }));
 			const body = await res.json();
 			job = (body.jobs as Job[] | undefined)?.find((item) => item.id === jobId) ?? null;
-			if (!job) error = 'Vaga não encontrada. Ela pode ter sido removida.';
+			if (!job) error = t('jobdetail.error_not_found');
 		} catch {
-			error = 'Falha de rede ao carregar a vaga.';
+			error = t('jobdetail.error_network');
 		} finally {
 			loading = false;
 		}
@@ -43,7 +45,7 @@
 			const res = await fetch(`/api/jobs/${job.id}/${action}`, { method: 'POST' });
 			if (!res.ok) {
 				const body = await res.json().catch(() => ({}));
-				error = body.error ?? `Falha ao executar ${action}.`;
+				error = errorText(body, t('jobdetail.error_action', { action }));
 				return;
 			}
 			if (action === 'approve') {
@@ -52,7 +54,7 @@
 			}
 			await load();
 		} catch {
-			error = `Falha de rede ao executar ${action}.`;
+			error = t('jobdetail.error_action_network', { action });
 		} finally {
 			busy = false;
 		}
@@ -60,41 +62,41 @@
 </script>
 
 <svelte:head>
-	<title>Detalhe da vaga · openJob</title>
+	<title>{t('jobdetail.meta_title')}</title>
 </svelte:head>
 
 <PageHeader
-	title="Detalhe da vaga"
-	subtitle="A URL é a fonte da verdade — este conteúdo abre direto pelo link."
-	breadcrumb={[{ label: 'Início', href: '/' }, { label: 'Vagas', href: '/jobs' }, { label: `#${jobId}` }]}
+	title={t('jobs.dialog.detail_title')}
+	subtitle={t('jobdetail.subtitle')}
+	breadcrumb={[{ label: t('common.home'), href: '/' }, { label: t('common.jobs'), href: '/jobs' }, { label: `#${jobId}` }]}
 >
 	{#snippet actions()}
 		<LinkButton href="/jobs" variant="ghost">
-			<Icon name="arrow-left" size={20} /> Voltar para vagas
+			<Icon name="arrow-left" size={20} /> {t('jobdetail.back')}
 		</LinkButton>
 	{/snippet}
 </PageHeader>
 
 {#if error}
-	<Alert severity="error" title="Não foi possível abrir a vaga">{error}</Alert>
+	<Alert severity="error" title={t('jobdetail.cannot_open')}>{error}</Alert>
 {/if}
 
 {#if loading}
-	<Card><p class="hint">Carregando vaga…</p></Card>
+	<Card><p class="hint">{t('jobdetail.loading')}</p></Card>
 {:else if job}
 	<Card>
 		<JobDetail {job}>
 			{#snippet actions()}
-				<Button variant="secondary" loading={busy} onclick={() => act('score')}>Calcular score</Button>
-				<Button loading={busy} disabled={job!.status !== 'new'} onclick={() => act('approve')}>Aprovar</Button>
-				<Button variant="danger" loading={busy} disabled={job!.status === 'discarded'} onclick={() => act('discard')}>Descartar</Button>
+				<Button variant="secondary" loading={busy} onclick={() => act('score')}>{t('jobdetail.score')}</Button>
+				<Button loading={busy} disabled={job!.status !== 'new'} onclick={() => act('approve')}>{t('jobdetail.approve')}</Button>
+				<Button variant="danger" loading={busy} disabled={job!.status === 'discarded'} onclick={() => act('discard')}>{t('jobdetail.discard')}</Button>
 			{/snippet}
 		</JobDetail>
 	</Card>
 {:else}
 	<Card>
-		<EmptyState title="Vaga não encontrada" description="Volte para a lista de vagas e tente novamente.">
-			<Button onclick={() => goto('/jobs')}>Ver vagas</Button>
+		<EmptyState title={t('jobdetail.not_found')} description={t('jobdetail.not_found_desc')}>
+			<Button onclick={() => goto('/jobs')}>{t('jobdetail.see_jobs')}</Button>
 		</EmptyState>
 	</Card>
 {/if}

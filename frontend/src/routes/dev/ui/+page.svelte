@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
 	/**
 	 * Página de referência ("storybook mínimo") do design system.
 	 * Protegida por OPENJOB_DEV_UI=1 — ver docs/design/tokens.md.
@@ -43,7 +44,7 @@
 	let dialogOpen = $state(false);
 	let drawerOpen = $state(false);
 	let tab = $state('um');
-	let segment = $state('dia');
+	let segment = $state(t('sources.cell.day'));
 
 	interface Sample {
 		id: number;
@@ -51,84 +52,84 @@
 		tipo: string;
 		valor: string;
 	}
-	const sample: Sample[] = [
-		{ id: 1, nome: 'Himalayas', tipo: 'API pública', valor: '60/min' },
-		{ id: 2, nome: 'Remotive', tipo: 'API pública', valor: 'Padrão' }
-	];
-	const sampleColumns: DataColumn<Sample>[] = [
-		{ key: 'nome', header: 'Nome', value: (row) => row.nome },
-		{ key: 'tipo', header: 'Tipo', value: (row) => row.tipo },
-		{ key: 'valor', header: 'Rate limit', value: (row) => row.valor }
-	];
+	const sample = $derived<Sample[]>([
+		{ id: 1, nome: 'Himalayas', tipo: t('devui.demo.public_api'), valor: '60/min' },
+		{ id: 2, nome: 'Remotive', tipo: t('devui.demo.public_api'), valor: t('sources.cell.default') }
+	]);
+	const sampleColumns = $derived<DataColumn<Sample>[]>([
+		{ key: 'nome', header: t('sources.col.name'), value: (row) => row.nome },
+		{ key: 'tipo', header: t('notifications.filter.type'), value: (row) => row.tipo },
+		{ key: 'valor', header: t('sources.col.rate_limit'), value: (row) => row.valor }
+	]);
 </script>
 
-<svelte:head><title>Design System · openJob</title></svelte:head>
+<svelte:head><title>{t('devui.title')} · {t('common.app_name')}</title></svelte:head>
 
 {#if !enabled}
-	<Card title="Página indisponível">
-		<p>Defina <code>OPENJOB_DEV_UI=1</code> para habilitar a página de referência.</p>
+	<Card title={t('devui.unavailable')}>
+		<p>{t('devui.unavailable_desc')}</p>
 	</Card>
 {:else}
 	<PageHeader
-		title="Design System"
-		subtitle="Referência visual dos tokens e componentes — CP12."
-		breadcrumb={[{ label: 'Início', href: '/' }, { label: 'Design System' }]}
+		title={t('devui.title')}
+		subtitle={t('devui.subtitle')}
+		breadcrumb={[{ label: t('common.home'), href: '/' }, { label: t('devui.title') }]}
 	/>
 
-	<Section title="Ações" description="Button (primary/secondary/ghost/danger), IconButton e LinkButton.">
+	<Section title={t('tasks.col.actions')} description={t('devui.demo.actions_desc')}>
 		<Card>
 			<div class="demo-row">
-				<Button>Primary</Button>
-				<Button variant="secondary">Secondary</Button>
-				<Button variant="ghost">Ghost</Button>
-				<Button variant="danger">Danger</Button>
-				<Button loading>Loading</Button>
-				<Button size="sm">Small</Button>
-				<Button size="lg">Large</Button>
-				<IconButton icon="plus" label="Adicionar" />
-				<LinkButton href="/settings" variant="secondary">Link</LinkButton>
+				<Button>{t('devui.demo.primary')}</Button>
+				<Button variant="secondary">{t('devui.demo.secondary')}</Button>
+				<Button variant="ghost">{t('devui.demo.ghost')}</Button>
+				<Button variant="danger">{t('devui.demo.danger')}</Button>
+				<Button loading>{t('devui.demo.loading')}</Button>
+				<Button size="sm">{t('devui.demo.small')}</Button>
+				<Button size="lg">{t('devui.demo.large')}</Button>
+				<IconButton icon="plus" label={t('devui.demo.add')} />
+				<LinkButton href="/settings" variant="secondary">{t('devui.demo.link')}</LinkButton>
 			</div>
 		</Card>
 	</Section>
 
-	<Section title="Formulário" description="Field + controles. Todos usam os tokens de espaçamento e foco.">
+	<Section title={t('devui.section.form')} description={t('devui.section.form_desc_rich')}>
 		<div class="grid grid-2">
 			<Card>
-				<Field label="Input" for="demo-input" hint="Texto de ajuda do campo.">
-					<Input id="demo-input" bind:value={inputValue} />
+				<Field label={t('devui.demo.input')} for="demo-input" hint={t('devui.demo.textarea_hint')}>
+					<input id="demo-input" bind:value={inputValue} />
 				</Field>
-				<Field label="Textarea" for="demo-textarea">
+				<Field label={t('devui.demo.textarea')} for="demo-textarea">
 					<Textarea id="demo-textarea" bind:value={textareaValue} rows={3} />
 				</Field>
-				<Field label="Select" for="demo-select">
-					<Select id="demo-select" bind:value={selectValue} options={[{ value: 'a', label: 'Opção A' }, { value: 'b', label: 'Opção B' }]} />
+				<Field label={t('devui.demo.select')} for="demo-select">
+					<Select id="demo-select" bind:value={selectValue} options={[{ value: 'a', label: t('devui.demo.option_a') }, { value: 'b', label: t('devui.demo.option_b') }]} />
 				</Field>
 			</Card>
 			<Card>
-				<Checkbox label="Checkbox" bind:checked />
-				<Switch label="Switch" description="Estado persistido separadamente." bind:checked={switched} />
+				<Checkbox label={t('devui.demo.checkbox')} bind:checked />
+				<Switch label={t('devui.demo.switch')} description="Estado persistido separadamente." bind:checked={switched} />
 				<RadioGroup
 					name="demo-radio"
-					label="Radio group"
+					label={t('devui.demo.radio')}
 					bind:value={radio}
-					options={[{ value: 'a', label: 'Primeira' }, { value: 'b', label: 'Segunda' }]}
+					options={[{ value: 'a', label: t('devui.demo.first') }, { value: 'b', label: t('devui.demo.second') }]}
 				/>
 				<Combobox
-					label="Combobox"
+					label={t('devui.demo.combobox')}
 					bind:value={combobox}
-					options={[{ value: 'go', label: 'Golang' }, { value: 'ts', label: 'TypeScript' }]}
+					options={[{ value: 'go', label: t('devui.demo.golang') }, { value: 'ts', label: t('devui.demo.typescript') }]}
 				/>
 			</Card>
 		</div>
 	</Section>
 
-	<Section title="Feedback" description="Alert, Badge, Spinner, ProgressBar, EmptyState e Skeleton.">
+	<Section title={t('devui.section.feedback')} description="Alert, Badge, Spinner, ProgressBar, EmptyState e Skeleton.">
 		<div class="grid grid-2">
 			<Card>
-				<div class="demo-row"><Alert severity="info" title="Info">Mensagem informativa.</Alert></div>
-				<div class="demo-row"><Alert severity="success" title="Sucesso">Operação concluída.</Alert></div>
-				<div class="demo-row"><Alert severity="warning" title="Aviso">Atenção necessária.</Alert></div>
-				<div class="demo-row"><Alert severity="error" title="Erro">Algo deu errado.</Alert></div>
+				<div class="demo-row"><Alert severity="info" title={t('common.info')}>{t('devui.demo.info_msg')}</Alert></div>
+				<div class="demo-row"><Alert severity="success" title={t('common.success')}>{t('devui.demo.success_msg')}</Alert></div>
+				<div class="demo-row"><Alert severity="warning" title={t('common.warning')}>{t('devui.demo.warning_msg')}</Alert></div>
+				<div class="demo-row"><Alert severity="error" title={t('common.error')}>{t('errors.unknown')}</Alert></div>
 			</Card>
 			<Card>
 				<div class="demo-row">
@@ -136,44 +137,44 @@
 					<Badge tone="warning">warning</Badge><Badge tone="error">error</Badge><Badge tone="info">info</Badge>
 				</div>
 				<div class="demo-row"><Spinner size={24} label="Carregando" /></div>
-				<ProgressBar value={65} label="Progresso" showValue />
+				<ProgressBar value={65} label={t('common.progress')} showValue />
 				<Skeleton width="100%" height="48px" />
-				<EmptyState title="Estado vazio" description="Usado quando não há registros." />
+				<EmptyState title={t('devui.demo.empty')} description={t('devui.demo.empty_desc')} />
 			</Card>
 		</div>
 	</Section>
 
-	<Section title="Estrutura" description="Card, Panel, Tabs e SegmentedControl.">
+	<Section title={t('devui.section.structure')} description="Card, {t('devui.demo.panel')}, Tabs e SegmentedControl.">
 		<div class="grid grid-2">
-			<Card title="Card com cabeçalho" subtitle="Subtítulo do cartão">
-				<Panel title="Panel">Conteúdo em painel.</Panel>
+			<Card title={t('devui.demo.card_title')} subtitle={t('devui.demo.card_subtitle')}>
+				<Panel title={t('devui.demo.panel')}>{t('devui.demo.panel_content')}</Panel>
 			</Card>
 			<Card>
-				<Tabs items={[{ value: 'um', label: 'Um', count: 2 }, { value: 'dois', label: 'Dois' }]} bind:value={tab} label="Abas de exemplo" />
-				<SegmentedControl options={[{ value: 'dia', label: 'Dia' }, { value: 'semana', label: 'Semana' }]} bind:value={segment} label="Período" />
+				<Tabs items={[{ value: 'um', label: t('devui.demo.one'), count: 2 }, { value: 'dois', label: t('devui.demo.two') }]} bind:value={tab} label={t('devui.demo.tabs')} />
+				<SegmentedControl options={[{ value: t('sources.cell.day'), label: t('devui.demo.day') }, { value: 'semana', label: t('devui.demo.week') }]} bind:value={segment} label={t('devui.demo.period')} />
 			</Card>
 		</div>
 	</Section>
 
-	<Section title="Dados e overlays" description="DataView alterna card/tabela por breakpoint; Dialog alterna sheet/modal.">
+	<Section title={t('devui.section.data')} description={t('devui.section.data_desc')}>
 		<Card>
-			<DataView columns={sampleColumns} rows={sample} getKey={(row) => row.id} caption="Exemplo" />
+			<DataView columns={sampleColumns} rows={sample} getKey={(row) => row.id} caption={t('devui.demo.caption')} />
 			<div class="demo-row">
-				<Button onclick={() => (dialogOpen = true)}>Abrir Dialog</Button>
-				<Button variant="secondary" onclick={() => (drawerOpen = true)}>Abrir Drawer</Button>
+				<Button onclick={() => (dialogOpen = true)}>{t('devui.demo.open_dialog')}</Button>
+				<Button variant="secondary" onclick={() => (drawerOpen = true)}>{t('devui.demo.open_drawer')}</Button>
 			</div>
 		</Card>
 	</Section>
 {/if}
 
-<Dialog open={dialogOpen} onclose={() => (dialogOpen = false)} title="Diálogo de exemplo" description="Sheet no mobile/tablet, modal no desktop.">
-	<p>Conteúdo do diálogo. Escape fecha e o foco volta ao disparador.</p>
-	{#snippet footer()}<Button onclick={() => (dialogOpen = false)}>Fechar</Button>{/snippet}
+<Dialog open={dialogOpen} onclose={() => (dialogOpen = false)} title={t('devui.demo.dialog_example')} description={t('devui.demo.dialog_desc')}>
+	<p>{t('devui.demo.dialog_body')}</p>
+	{#snippet footer()}<Button onclick={() => (dialogOpen = false)}>{t('common.close')}</Button>{/snippet}
 </Dialog>
 
 {#if drawerOpen}
-	<Drawer title="Drawer de exemplo" onclose={() => (drawerOpen = false)}>
-		<p>Conteúdo do drawer lateral.</p>
+	<Drawer title={t('devui.demo.drawer_example')} onclose={() => (drawerOpen = false)}>
+		<p>{t('devui.demo.drawer_body')}</p>
 	</Drawer>
 {/if}
 
@@ -186,10 +187,4 @@
 		margin-bottom: var(--space-3);
 	}
 
-	code {
-		font-family: var(--font-mono);
-		background: var(--color-surface-elevated);
-		padding: var(--space-1) var(--space-2);
-		border-radius: var(--radius-sm);
-	}
 </style>

@@ -31,18 +31,29 @@ func registerNotifications(r chi.Router, n *notificationsAPI) {
 	r.Put("/settings/notifications", n.updateConfig)
 }
 
+// nullableString sends empty strings as JSON null so the frontend can use
+// `i18n_key ? ... : title + body` without extra checks.
+func nullableString(v string) any {
+	if v == "" {
+		return nil
+	}
+	return v
+}
+
 // notificationPayload renders a notification row for the UI (snake_case).
 func notificationPayload(n store.Notification) map[string]any {
 	item := map[string]any{
-		"id":         n.ID,
-		"type":       n.Type,
-		"severity":   n.Severity,
-		"title":      n.Title,
-		"body":       n.Body,
-		"link":       n.Link,
-		"metadata":   n.Metadata,
-		"read_at":    nil,
-		"created_at": n.CreatedAt,
+		"id":          n.ID,
+		"type":        n.Type,
+		"severity":    n.Severity,
+		"title":       n.Title,
+		"body":        n.Body,
+		"link":        n.Link,
+		"metadata":    n.Metadata,
+		"i18n_key":    nullableString(n.I18nKey),
+		"i18n_params": nullableString(n.I18nParams),
+		"read_at":     nil,
+		"created_at":  n.CreatedAt,
 	}
 	if n.ReadAt != nil {
 		item["read_at"] = n.ReadAt
@@ -99,12 +110,12 @@ func (n *notificationsAPI) unreadCount(w http.ResponseWriter, r *http.Request) {
 func (n *notificationsAPI) markRead(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil || id <= 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id inválido"})
+		writeAPIError(w, http.StatusBadRequest, "invalid_id", "invalid id", nil)
 		return
 	}
 	if err := n.repo.MarkNotificationRead(r.Context(), id); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "notificação não encontrada"})
+			writeAPIError(w, http.StatusNotFound, "notification.not_found", "notification not found", map[string]any{"id": id})
 			return
 		}
 		n.logger.Error("mark notification read failed", "id", id, "err", err)
@@ -136,12 +147,12 @@ func (n *notificationsAPI) readAll(w http.ResponseWriter, r *http.Request) {
 func (n *notificationsAPI) delete(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil || id <= 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id inválido"})
+		writeAPIError(w, http.StatusBadRequest, "invalid_id", "invalid id", nil)
 		return
 	}
 	if err := n.repo.DeleteNotification(r.Context(), id); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "notificação não encontrada"})
+			writeAPIError(w, http.StatusNotFound, "notification.not_found", "notification not found", map[string]any{"id": id})
 			return
 		}
 		n.logger.Error("delete notification failed", "id", id, "err", err)
@@ -179,8 +190,8 @@ func (n *notificationsAPI) getConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"in_app_enabled":       cfg.InAppEnabled,
-		"retention_days":       cfg.RetentionDays,
+		"in_app_enabled":        cfg.InAppEnabled,
+		"retention_days":        cfg.RetentionDays,
 		"browser_notifications": cfg.BrowserNotifications,
 	})
 }
@@ -189,7 +200,7 @@ func (n *notificationsAPI) updateConfig(w http.ResponseWriter, r *http.Request) 
 	r.Body = http.MaxBytesReader(w, r.Body, maxSettingsBody)
 	var req notificationSettingsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSON inválido"})
+		writeAPIError(w, http.StatusBadRequest, "invalid_json", "invalid JSON", nil)
 		return
 	}
 
@@ -213,8 +224,8 @@ func (n *notificationsAPI) updateConfig(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"in_app_enabled":       cfg.InAppEnabled,
-		"retention_days":       cfg.RetentionDays,
+		"in_app_enabled":        cfg.InAppEnabled,
+		"retention_days":        cfg.RetentionDays,
 		"browser_notifications": cfg.BrowserNotifications,
 	})
 }

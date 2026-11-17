@@ -12,13 +12,14 @@ import (
 
 // ---- notifications (CP10) ------------------------------------------------
 
-const notificationCols = `id, type, severity, title, body, COALESCE(link, ''),
+const notificationCols = `id, type, severity, title, body,
+	COALESCE(i18n_key, ''), COALESCE(i18n_params, ''), COALESCE(link, ''),
 	COALESCE(metadata, ''), read_at, created_at`
 
 func scanNotification(scan func(dest ...any) error) (Notification, error) {
 	var n Notification
 	var read, created any
-	if err := scan(&n.ID, &n.Type, &n.Severity, &n.Title, &n.Body, &n.Link, &n.Metadata, &read, &created); err != nil {
+	if err := scan(&n.ID, &n.Type, &n.Severity, &n.Title, &n.Body, &n.I18nKey, &n.I18nParams, &n.Link, &n.Metadata, &read, &created); err != nil {
 		return n, err
 	}
 	if s, ok := read.(string); ok && s != "" {
@@ -58,7 +59,13 @@ func (s *SQLiteStore) InsertNotification(ctx context.Context, n Notification) (i
 	if n.Severity == "" {
 		n.Severity = "info"
 	}
-	var link, meta any
+	var link, meta, i18nKey, i18nParams any
+	if n.I18nKey != "" {
+		i18nKey = n.I18nKey
+	}
+	if n.I18nParams != "" {
+		i18nParams = n.I18nParams
+	}
 	if n.Link != "" {
 		link = n.Link
 	}
@@ -70,9 +77,9 @@ func (s *SQLiteStore) InsertNotification(ctx context.Context, n Notification) (i
 		readAt = n.ReadAt.UTC().Format(time.RFC3339Nano)
 	}
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO notifications (type, severity, title, body, link, metadata, read_at, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		n.Type, n.Severity, n.Title, n.Body, link, meta, readAt, nowUTC().Format(time.RFC3339Nano))
+		INSERT INTO notifications (type, severity, title, body, i18n_key, i18n_params, link, metadata, read_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		n.Type, n.Severity, n.Title, n.Body, i18nKey, i18nParams, link, meta, readAt, nowUTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return 0, err
 	}

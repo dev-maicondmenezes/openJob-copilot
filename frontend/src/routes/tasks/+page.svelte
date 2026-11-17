@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
+	import { currentLocale } from '#lib/i18n/format.js';
 	import { onMount } from 'svelte';
 	import {
 		tasks,
@@ -23,23 +25,26 @@
 	import type { DataColumn } from '#lib/ui/data.js';
 
 	type Tab = 'all' | TaskStatus;
-	const tabs: { key: Tab; label: string }[] = [
-		{ key: 'all', label: 'Todas' },
-		{ key: 'queued', label: 'Na fila' },
-		{ key: 'running', label: 'Rodando' },
-		{ key: 'done', label: 'Concluídas' },
-		{ key: 'failed', label: 'Falharam' },
-		{ key: 'cancelled', label: 'Canceladas' }
-	];
+	const tabs = $derived<{ key: Tab; label: string }[]>([
+		{ key: 'all', label: t('ui.all_label') },
+		{ key: 'queued', label: t('common.queue') },
+		{ key: 'running', label: t('common.running') },
+		{ key: 'done', label: t('tasks.tab.completed') },
+		{ key: 'failed', label: t('tasks.tab.failed') },
+		{ key: 'cancelled', label: t('tasks.tab.cancelled') }
+	]);
 
 	let tab = $state<Tab>('all');
 	let detail: TaskItem | null = $state(null);
 
-	const typeLabel: Record<string, string> = {
-		score_job: 'Score de vaga',
-		extract_resume_keywords: 'Palavras-chave do currículo',
-		tailor_resume: 'Adaptação de currículo'
-	};
+	function typeLabel(type: string): string {
+		switch (type) {
+			case 'score_job': return t('tasks.type.score');
+			case 'extract_resume_keywords': return t('tasks.type.keywords');
+			case 'tailor_resume': return t('tasks.type.tailoring');
+			default: return type;
+		}
+	}
 
 	const statusFilter = $derived(tab === 'all' ? '' : tab);
 	const visible = $derived(tab === 'all' ? $tasks : $tasks.filter((task) => task.status === tab));
@@ -51,22 +56,24 @@
 		}))
 	);
 
-	const statusPill: Record<string, string> = {
-		queued: 'Na fila',
-		running: 'Rodando',
-		done: 'Concluída',
-		failed: 'Falhou',
-		cancelled: 'Cancelada'
-	};
+	function statusPillValue(status: string): string {
+		switch (status) {
+			case 'queued': return t('common.queue');
+			case 'running': return t('common.running');
+			case 'done': return t('common.done');
+			case 'failed': return t('common.failed');
+			default: return status;
+		}
+	}
 
-	const columns: DataColumn<TaskItem>[] = [
-		{ key: 'label', header: 'Tarefa', cardLabel: 'Tarefa', value: (task) => label(task) },
-		{ key: 'status', header: 'Status', value: (task) => statusPill[task.status] ?? task.status },
-		{ key: 'progress', header: 'Progresso', value: (task) => `${task.progress}%` },
-		{ key: 'attempts', header: 'Tentativas', value: (task) => `${task.attempts}/${task.max_attempts}` },
-		{ key: 'elapsed', header: 'Tempo', value: (task) => elapsed(task) },
-		{ key: 'actions', header: 'Ações', value: () => '' }
-	];
+	const columns = $derived<DataColumn<TaskItem>[]>([
+		{ key: 'label', header: t('tasks.col.task'), cardLabel: t('tasks.col.task'), value: (task) => label(task) },
+		{ key: 'status', header: t('common.status'), value: (task) => statusPillValue(task.status) },
+		{ key: 'progress', header: t('common.progress'), value: (task) => `${task.progress}%` },
+		{ key: 'attempts', header: t('tasks.col.attempts'), value: (task) => `${task.attempts}/${task.max_attempts}` },
+		{ key: 'elapsed', header: t('tasks.col.time'), value: (task) => elapsed(task) },
+		{ key: 'actions', header: t('tasks.col.actions'), value: () => '' }
+	]);
 
 	onMount(() => {
 		startTasksStream({ status: statusFilter });
@@ -92,9 +99,9 @@
 
 	function label(task: TaskItem): string {
 		const p = task.payload as { job_label?: string; job_id?: number } | null;
-		if (task.type === 'score_job' && p?.job_label) return `Score da vaga: ${p.job_label}`;
-		if (task.type === 'score_job' && p?.job_id) return `Score da vaga #${p.job_id}`;
-		return typeLabel[task.type] ?? task.type;
+		if (task.type === 'score_job' && p?.job_label) return t('tasks.score_progress', { value: p.job_label });
+		if (task.type === 'score_job' && p?.job_id) return t('tasks.score_job', { id: p.job_id });
+		return typeLabel(task.type);
 	}
 
 	function elapsed(task: TaskItem): string {
@@ -112,7 +119,7 @@
 </script>
 
 <svelte:head>
-	<title>Tarefas de IA · openJob</title>
+	<title>{t('tasks.meta_title')}</title>
 </svelte:head>
 
 {#snippet renderCell(task: TaskItem, column: DataColumn<TaskItem>)}
@@ -120,7 +127,7 @@
 		<strong>{label(task)}</strong>
 	{:else if column.key === 'status'}
 		<Badge tone={task.status === 'done' ? 'success' : task.status === 'failed' ? 'error' : task.status === 'running' ? 'info' : 'neutral'}>
-			{statusPill[task.status] ?? task.status}
+			{statusPillValue(task.status)}
 		</Badge>
 	{:else if column.key === 'progress'}
 		{#if task.status === 'running'}
@@ -131,12 +138,12 @@
 	{:else if column.key === 'actions'}
 		<div class="row-actions">
 			{#if task.status === 'queued' || task.status === 'running'}
-				<Button variant="ghost" size="sm" onclick={() => cancel(task)}>Cancelar</Button>
+				<Button variant="ghost" size="sm" onclick={() => cancel(task)}>{t('common.cancel')}</Button>
 			{/if}
 			{#if task.status === 'failed' || task.status === 'cancelled'}
-				<Button variant="ghost" size="sm" onclick={() => retry(task)}>Retry</Button>
+				<Button variant="ghost" size="sm" onclick={() => retry(task)}>{t('common.retry')}</Button>
 			{/if}
-			<Button variant="secondary" size="sm" onclick={() => (detail = task)}>Ver detalhe</Button>
+			<Button variant="secondary" size="sm" onclick={() => (detail = task)}>{t('tasks.view_detail')}</Button>
 		</div>
 	{:else}
 		{column.value?.(task) ?? ''}
@@ -144,24 +151,24 @@
 {/snippet}
 
 <PageHeader
-	title="Tarefas de IA"
-	subtitle="Fila assíncrona: scoring de vagas, extração de palavras-chave e futuras tarefas."
-	breadcrumb={[{ label: 'Início', href: '/' }, { label: 'Tarefas' }]}
+	title={t('tasks.title')}
+	subtitle={t('tasks.subtitle_full')}
+	breadcrumb={[{ label: t('common.home'), href: '/' }, { label: t('common.tasks') }]}
 >
 	{#snippet actions()}
 		<Badge tone={$tasksStreamConnected ? 'success' : 'neutral'}>
-			{$tasksStreamConnected ? '● em tempo real' : '○ via polling'}
+			{$tasksStreamConnected ? t('tasks.realtime') : t('tasks.polling')}
 		</Badge>
 	{/snippet}
 </PageHeader>
 
-<Tabs items={tabItems} value={tab} label="Filtrar tarefas por status" onchange={switchTab} />
+<Tabs items={tabItems} value={tab} label={t('tasks.filter')} onchange={switchTab} />
 
 {#if visible.length === 0}
 	<Card>
 		<EmptyState
-			title={`Nenhuma tarefa ${tab === 'all' ? '' : 'neste estado'}`}
-			description="Rodar “Buscar agora” em Vagas enfileira o scoring das vagas novas."
+			title={`Nenhuma tarefa ${tab === 'all' ? '' : t('tasks.empty.scope_state')}`}
+			description={t('tasks.empty.desc')}
 		/>
 	</Card>
 {:else}
@@ -169,7 +176,7 @@
 		columns={columns}
 		rows={visible}
 		getKey={(task) => task.id}
-		caption="Tarefas de IA"
+		caption={t('tasks.title')}
 		render={renderCell}
 	/>
 {/if}
@@ -177,31 +184,31 @@
 {#if detail}
 	<Drawer
 		title={label(detail)}
-		description={`${statusPill[detail.status] ?? detail.status} · ${detail.attempts}/${detail.max_attempts} tentativas`}
+		description={t('tasks.detail_description', { status: statusPillValue(detail.status), attempts: detail.attempts, max: detail.max_attempts })}
 		onclose={() => (detail = null)}
 	>
 		{#if detail.status === 'running'}
-			<ProgressBar value={detail.progress} label="Progresso" showValue />
+			<ProgressBar value={detail.progress} label={t('common.progress')} showValue />
 		{/if}
 		{#if detail.error}
 			<div class="block error">{detail.error}</div>
 		{/if}
 		<div class="detail-group">
-			<h3>Payload</h3>
+			<h3>{t('tasks.drawer.payload')}</h3>
 			<pre class="block">{JSON.stringify(detail.payload, null, 2)}</pre>
 		</div>
 		{#if detail.result !== null && detail.result !== undefined}
 			<div class="detail-group">
-				<h3>Resultado</h3>
+				<h3>{t('tasks.drawer.result')}</h3>
 				<pre class="block">{fmtResult(detail.result)}</pre>
 			</div>
 		{/if}
-		<p class="muted">Criada em {new Date(detail.created_at).toLocaleString('pt-BR')}</p>
+		<p class="muted">{t('tasks.drawer.created', { date: new Date(detail.created_at).toLocaleString(currentLocale()) })}</p>
 		{#snippet footer()}
 			{#if detail?.status === 'failed' || detail?.status === 'cancelled'}
-				<Button variant="secondary" onclick={() => retry(detail!)}>Retry</Button>
+				<Button variant="secondary" onclick={() => retry(detail!)}>{t('common.retry')}</Button>
 			{/if}
-			<Button variant="ghost" onclick={() => (detail = null)}>Fechar</Button>
+			<Button variant="ghost" onclick={() => (detail = null)}>{t('common.close')}</Button>
 		{/snippet}
 	</Drawer>
 {/if}

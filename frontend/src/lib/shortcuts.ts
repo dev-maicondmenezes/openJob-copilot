@@ -1,4 +1,5 @@
 import { goto } from '$app/navigation';
+import { t } from '#lib/i18n/t.js';
 
 /**
  * Atalhos de teclado desktop (CP12 §6.5). Instalado uma única vez pelo layout.
@@ -23,17 +24,19 @@ export interface ShortcutDefinition {
 	description: string;
 }
 
-export const SHORTCUTS: readonly ShortcutDefinition[] = [
-	{ id: 'jobs', keys: 'g j', label: 'Vagas', description: 'Ir para Vagas' },
-	{ id: 'applications', keys: 'g a', label: 'Candidaturas', description: 'Ir para Candidaturas' },
-	{ id: 'settings', keys: 'g s', label: 'Configurações', description: 'Ir para Configurações' },
-	{ id: 'notifications', keys: 'g n', label: 'Notificações', description: 'Ir para Notificações' },
-	{ id: 'tasks', keys: 'g t', label: 'Tarefas', description: 'Ir para Tarefas de IA' },
-	{ id: 'search', keys: '/', label: 'Busca', description: 'Focar o campo de busca' },
-	{ id: 'help', keys: '?', label: 'Ajuda', description: 'Abrir ajuda de atalhos' },
-	{ id: 'rail', keys: '[', label: 'Recolher menu', description: 'Alternar sidebar/rail' },
-	{ id: 'escape', keys: 'Esc', label: 'Fechar', description: 'Fechar overlay/detalhe' }
-] as const;
+export function getShortcuts(): readonly ShortcutDefinition[] {
+	return [
+		{ id: 'jobs', keys: 'g j', label: t('shortcut.jobs'), description: t('shortcut.jobs_desc') },
+		{ id: 'applications', keys: 'g a', label: t('shortcut.applications'), description: t('shortcut.applications_desc') },
+		{ id: 'settings', keys: 'g s', label: t('shortcut.settings'), description: t('shortcut.settings_desc') },
+		{ id: 'notifications', keys: 'g n', label: t('shortcut.notifications'), description: t('shortcut.notifications_desc') },
+		{ id: 'tasks', keys: 'g t', label: t('shortcut.tasks'), description: t('shortcut.tasks_desc') },
+		{ id: 'search', keys: '/', label: t('shortcut.search'), description: t('shortcut.search_desc') },
+		{ id: 'help', keys: '?', label: t('shortcut.help'), description: t('shortcut.help_desc') },
+		{ id: 'rail', keys: '[', label: t('shortcut.collapse'), description: t('shortcut.collapse_desc') },
+		{ id: 'escape', keys: 'Esc', label: t('shortcut.close'), description: t('shortcut.close_desc') }
+	];
+}
 
 const ROUTES: Partial<Record<ShortcutId, string>> = {
 	jobs: '/jobs',

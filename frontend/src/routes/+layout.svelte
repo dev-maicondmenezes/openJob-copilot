@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
 	import '../app.css';
 	import { onMount, tick } from 'svelte';
 	import { goto } from '$app/navigation';
@@ -10,14 +11,16 @@
 	import Sidebar from '#lib/ui/Sidebar.svelte';
 	import ShortcutsHelp from '#lib/ui/ShortcutsHelp.svelte';
 	import Icon from '#lib/ui/Icon.svelte';
-	import IconButton from '#lib/ui/IconButton.svelte';
 	import Input from '#lib/ui/Input.svelte';
 	import NotificationBell from '#lib/components/NotificationBell.svelte';
+	import SettingsMenu from '#lib/components/SettingsMenu.svelte';
 	import Toaster from '#lib/components/Toaster.svelte';
 	import { useViewport, viewport } from '#lib/ui/media.svelte.js';
 	import { sidebar } from '#lib/ui/sidebar.svelte.js';
 	import { pageFooter } from '#lib/ui/footer.svelte.js';
 	import { installShortcuts, onShortcut } from '#lib/shortcuts.js';
+	import { initTheme } from '#lib/i18n/theme.svelte.js';
+	import { initLocale, applyLocale, readStoredLocale, type Locale } from '#lib/i18n/locale.svelte.js';
 
 	// Registra o service worker (autoUpdate): novo deploy recarrega abas abertas.
 	registerSW({ immediate: true });
@@ -31,6 +34,18 @@
 	onMount(() => {
 		// Marker usado pelos testes para esperar a hidratação/atalhos instalados.
 		document.documentElement.setAttribute('data-app-ready', '1');
+		initTheme();
+		initLocale();
+		// Preferência do servidor só quando não há cache local (CP13 §3.1).
+		if (!readStoredLocale()) {
+			void fetch('/api/settings')
+				.then((res) => (res.ok ? res.json() : null))
+				.then((body) => {
+					const loc = body?.settings?.locale as Locale | undefined;
+					if (loc && ['pt-BR', 'en-US', 'es-419'].includes(loc)) applyLocale(loc, false);
+				})
+				.catch(() => {});
+		}
 		sidebar.load();
 		const stopShortcuts = installShortcuts();
 		const offHelp = onShortcut('help', () => (helpOpen = true));
@@ -64,7 +79,7 @@
 	<link rel="icon" href="%sveltekit.assets%/favicon.svg" />
 </svelte:head>
 
-<a href="#main" class="skip-link">Pular para o conteúdo</a>
+<a href="#main" class="skip-link">{t('nav.skip_to_content')}</a>
 
 {#if viewport.isDesktop}
 	<Sidebar />
@@ -80,19 +95,19 @@
 		<a class="brand" href="/">
 			<span class="mark" aria-hidden="true">oj</span>
 			<span class="brand-copy">
-				<strong>openJob</strong>
-				<small aria-hidden="true">Seu assistente de busca de emprego, rodando local.</small>
+				<strong>{t('common.app_name')}</strong>
+				<small aria-hidden="true">{t('nav.tagline')}</small>
 			</span>
-			<span class="visually-hidden">— início</span>
+			<span class="visually-hidden">{t('nav.home_suffix')}</span>
 		</a>
 
 		<form class="search" role="search" onsubmit={submitSearch}>
 			<Icon name="search" size={24} />
-			<Input
+			<input
 				data-global-search
 				type="search"
-				placeholder="Buscar vagas…"
-				aria-label="Buscar vagas"
+				placeholder={t('nav.search_placeholder')}
+				aria-label={t('nav.search_button')}
 				class="search-input"
 				bind:value={search}
 			/>
@@ -100,13 +115,7 @@
 
 		<div class="head-actions">
 			<NotificationBell />
-			<IconButton
-				icon="keyboard"
-				label="Atalhos de teclado"
-				variant="ghost"
-				iconSize={24}
-				onclick={() => (helpOpen = true)}
-			/>
+			<SettingsMenu onShortcuts={() => (helpOpen = true)} />
 		</div>
 	</header>
 
@@ -231,18 +240,17 @@
 		min-width: 0;
 		max-width: 22rem;
 		margin-left: auto;
-		padding: 0 var(--space-3);
-		background: var(--color-surface);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-pill);
+		padding: 0;
+		background: transparent;
+		border: 0;
 		color: var(--color-text-muted);
 	}
 
 	.search:focus-within {
-		border-color: var(--color-primary);
+		color: var(--color-primary);
 	}
 
-	.search :global(.input.search-input) {
+	.search :global(input.search-input) {
 		width: 100%;
 		min-height: 44px;
 		padding: 0;
@@ -251,8 +259,11 @@
 		font-size: var(--text-caption);
 	}
 
-	.search :global(.input.search-input:focus) {
-		outline: 0;
+	/* Sem moldura no campo: o foco do teclado continua visível no próprio input. */
+	.search :global(input.search-input:focus) {
+		outline: 2px solid var(--color-focus);
+		outline-offset: var(--space-1);
+		border-radius: var(--radius-sm);
 	}
 
 	.head-actions {

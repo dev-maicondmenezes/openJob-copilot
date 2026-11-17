@@ -188,17 +188,46 @@ test.describe('correções de UI/UX', () => {
 		await expect(page.locator('.record')).toHaveCount(14);
 	});
 
-	test('sidebar sem Notificações; Config no rodapé e Atalhos no topo', async ({ page }) => {
+	test('configurações e atalhos vivem no menu do cabeçalho', async ({ page }) => {
 		await gotoReady(page, '/');
 		const sidebar = page.locator('aside[aria-label="Navegação lateral"]');
 		await expect(sidebar.getByRole('link', { name: 'Notificações' })).toHaveCount(0);
-		await expect(sidebar.getByRole('link', { name: 'Config' })).toBeVisible();
-		await expect(sidebar.getByText('Atalhos')).toHaveCount(0);
+		await expect(sidebar.getByRole('link', { name: 'Config' })).toHaveCount(0);
 
-		const help = page.locator('.head-actions button[aria-label="Atalhos de teclado"]');
-		await expect(help).toBeVisible();
-		await help.click();
+		const settings = page.locator('.head-actions button[aria-label="Configurações"]');
+		await expect(settings).toBeVisible();
+		await settings.click();
+		const menu = page.getByRole('menu', { name: 'Configurações' });
+		await expect(menu).toBeVisible();
+		for (const label of [
+			'Provedor IA (BYOK)',
+			'Fontes de Vagas',
+			'Busca & Filtros',
+			'Notificações & Tarefas',
+			'Aparência'
+		]) {
+			await expect(menu.getByRole('menuitem', { name: label })).toBeVisible();
+		}
+		await menu.getByRole('menuitem', { name: 'Atalhos de teclado' }).click();
 		await expect(page.getByRole('dialog', { name: /atalhos de teclado/i })).toBeVisible();
+	});
+
+	test('menu de configurações navega entre as abas internas', async ({ page }) => {
+		await gotoReady(page, '/jobs');
+		await page.locator('.head-actions button[aria-label="Configurações"]').click();
+		await page.getByRole('menuitem', { name: 'Aparência' }).click();
+		await expect(page).toHaveURL(/\/settings\/appearance$/);
+		await expect(page.getByRole('heading', { name: 'Aparência' })).toBeVisible();
+	});
+
+	test('mobile: bottom nav tem 4 destinos e configuração fica no header', async ({ page }) => {
+		await page.setViewportSize({ width: 375, height: 667 });
+		await gotoReady(page, '/');
+		const bottom = page.locator('nav.bottom-nav');
+		await expect(bottom.getByRole('link')).toHaveCount(4);
+		await expect(bottom.getByRole('link', { name: 'Config' })).toHaveCount(0);
+		await page.locator('.head-actions button[aria-label="Configurações"]').click();
+		await expect(page.getByRole('menuitem', { name: 'Aparência' })).toBeVisible();
 	});
 
 	test('ações de notificação são ícones com tooltip', async ({ page }) => {

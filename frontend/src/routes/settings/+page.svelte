@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
+	import { errorText } from '#lib/i18n/errors.js';
 	import { onMount } from 'svelte';
 	import SettingsNav from '#lib/components/SettingsNav.svelte';
 	import PageHeader from '#lib/ui/PageHeader.svelte';
@@ -40,13 +42,13 @@
 				configured = cfg.configured;
 			}
 		} catch {
-			status = { kind: 'error', text: 'Não foi possível carregar a configuração atual.' };
+			status = { kind: 'error', text: t('settings.error.load') };
 		}
 	});
 
 	async function save() {
 		if (!apiKey.trim()) {
-			status = { kind: 'error', text: 'Informe a API key.' };
+			status = { kind: 'error', text: t('settings.error.key_required') };
 			return;
 		}
 		saving = true;
@@ -60,13 +62,13 @@
 			if (res.status === 204) {
 				configured = true;
 				apiKey = '';
-				status = { kind: 'success', text: 'Chave salva com sucesso — armazenada cifrada no seu banco local.' };
+				status = { kind: 'success', text: t('settings.error.saved') };
 			} else {
 				const body = await res.json().catch(() => ({}));
-				status = { kind: 'error', text: body.error ?? `Erro ${res.status} ao salvar.` };
+				status = { kind: 'error', text: errorText(body, t('settings.error.save_http', { status: res.status })) };
 			}
 		} catch {
-			status = { kind: 'error', text: 'Falha de rede ao salvar.' };
+			status = { kind: 'error', text: t('jobs.error.save_network') };
 		} finally {
 			saving = false;
 		}
@@ -79,10 +81,10 @@
 			const res = await fetch('/api/settings/llm-ping', { method: 'POST' });
 			const result: PingResult = await res.json();
 			status = result.ok
-				? { kind: 'success', text: result.message ?? 'Conexão estabelecida.' }
-				: { kind: 'error', text: result.error ?? 'Falha na conexão.' };
+				? { kind: 'success', text: result.message ?? t('settings.error.ping_ok') }
+				: { kind: 'error', text: errorText(result, t('settings.error.ping_fail')) };
 		} catch {
-			status = { kind: 'error', text: 'Falha de rede ao testar a conexão.' };
+			status = { kind: 'error', text: t('settings.error.ping_network') };
 		} finally {
 			testing = false;
 		}
@@ -90,13 +92,13 @@
 </script>
 
 <svelte:head>
-	<title>Configurações · openJob</title>
+	<title>{t('settings.meta_title')}</title>
 </svelte:head>
 
 <PageHeader
-	title="Configurações"
-	subtitle="Chaves e preferências — sua chave fica no seu computador, cifrada, e nunca volta para o navegador."
-	breadcrumb={[{ label: 'Início', href: '/' }, { label: 'Configurações' }]}
+	title={t('common.settings')}
+	subtitle={t('settings.subtitle')}
+	breadcrumb={[{ label: t('common.home'), href: '/' }, { label: t('common.settings') }]}
 />
 
 <SettingsNav active="llm" />
@@ -105,40 +107,40 @@
 	<Alert severity={status.kind}>{status.text}</Alert>
 {/if}
 
-<Card title="Provedor de IA (BYOK)" subtitle="Compatível com OpenAI, Groq, Ollama, Together e Fireworks.">
+<Card title={t('settings.card.llm_title')} subtitle={t('settings.card.llm_desc')}>
 	{#snippet actions()}
 		<Badge tone={configured ? 'success' : 'warning'}>
-			{configured ? 'configurado' : 'não configurado'}
+			{configured ? t('settings.badge.configured') : t('settings.badge.not_configured')}
 		</Badge>
 	{/snippet}
 	<form onsubmit={(e) => { e.preventDefault(); save(); }}>
-		<Field label="Base URL" for="base_url">
-			<Input id="base_url" type="url" bind:value={baseUrl} placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false" />
+		<Field label={t('settings.field.base_url')} for="base_url">
+			<input id="base_url" type="url" bind:value={baseUrl} placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false" />
 		</Field>
-		<Field label="Modelo" for="model">
-			<Input id="model" bind:value={model} placeholder="gpt-4o-mini" autocomplete="off" spellcheck="false" />
+		<Field label={t('settings.field.model')} for="model">
+			<input id="model" bind:value={model} placeholder="gpt-4o-mini" autocomplete="off" spellcheck="false" />
 		</Field>
-		<Field label="API key" for="api_key" hint="A chave é cifrada (AES-GCM) antes de ir para o SQLite e não pode ser recuperada pela UI.">
+		<Field label={t('settings.field.api_key')} for="api_key" hint={t('settings.field.api_key_hint')}>
 			<div class="key-row">
-				<Input
+				<input
 					id="api_key"
 					type={showKey ? 'text' : 'password'}
-					placeholder={configured ? '•••••••• (salva — digite para trocar)' : 'sk-…'}
+					placeholder={configured ? t('settings.field.api_key_saved') : t('settings.field.api_key_placeholder')}
 					bind:value={apiKey}
 					autocomplete="off"
 					spellcheck="false"
 				/>
 				<IconButton
 					icon={showKey ? 'eye-off' : 'eye'}
-					label={showKey ? 'Ocultar chave' : 'Revelar chave'}
+					label={showKey ? t('ui.hide_password') : t('ui.show_password')}
 					variant="ghost"
 					onclick={() => (showKey = !showKey)}
 				/>
 			</div>
 		</Field>
 		<div class="form-actions">
-			<Button type="submit" loading={saving}>Salvar</Button>
-			<Button type="button" variant="secondary" loading={testing} onclick={testConnection}>Testar conexão</Button>
+			<Button type="submit" loading={saving}>{t('common.save')}</Button>
+			<Button type="button" variant="secondary" loading={testing} onclick={testConnection}>{t('settings.button.test_connection')}</Button>
 		</div>
 	</form>
 </Card>

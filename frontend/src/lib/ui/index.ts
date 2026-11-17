@@ -42,7 +42,7 @@ export { default as Icon } from './Icon.svelte';
 export { default as BottomNav } from './BottomNav.svelte';
 export { default as Sidebar } from './Sidebar.svelte';
 export { default as Menu } from './Menu.svelte';
-export { PRIMARY_NAV, SECONDARY_NAV, FOOTER_NAV, BOTTOM_NAV, isActive } from './nav.js';
+export { primaryNav, secondaryNav, bottomNav, isActive } from './nav.js';
 export type { NavItem } from './nav.js';
 
 // Overlay

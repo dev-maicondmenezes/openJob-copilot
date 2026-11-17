@@ -19,6 +19,11 @@ const (
 	settingLLMAPIKey  = "llm.api_key"
 	settingLLMBaseURL = "llm.base_url"
 	settingLLMModel   = "llm.model"
+	// settingLocale é a fonte da verdade do idioma (CP13 §3.1). Themef is
+	// per-device (localStorage) e nunca vai para o backend nesta CP.
+	settingLocale     = "settings.locale"
+	defaultLocale     = "en-US"
+	maxAppearanceBody = 1 << 10 // 1 KiB
 )
 
 // maxSettingsBody bounds JSON bodies — BYOK payloads are tiny.
@@ -42,10 +47,68 @@ type llmKeyRequest struct {
 
 // registerSettings mounts the settings routes.
 func registerSettings(r chi.Router, s *settingsAPI) {
+	r.Get("/settings", s.getSettings)
+	r.Put("/settings/appearance", s.updateAppearance)
 	r.Post("/settings/llm-key", s.saveLLMKey)
 	r.Get("/settings/llm-key", s.llmKeyStatus)
 	r.Get("/settings/llm", s.llmConfig) // non-secret values for UI hydration
 	r.Post("/settings/llm-ping", s.pingLLM)
+}
+
+// getSettings returns the non-secret, user-facing preferences (CP13 §4.4).
+// Theme is intentionally absent: it is stored per-device in localStorage.
+func (s *settingsAPI) getSettings(w http.ResponseWriter, r *http.Request) {
+	locale, err := s.repo.GetSetting(r.Context(), settingLocale)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		s.logger.Error("load locale setting failed", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to load settings"})
+		return
+	}
+	if !isSupportedLocale(locale) {
+		locale = defaultLocale
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"settings": map[string]any{"locale": locale},
+		"locale":   locale,
+	})
+}
+
+type appearanceRequest struct {
+	Locale string `json:"locale"`
+}
+
+func isSupportedLocale(locale string) bool {
+	switch locale {
+	case "pt-BR", "en-US", "es-419":
+		return true
+	default:
+		return false
+	}
+}
+
+// updateAppearance persists the server-side locale preference. Invalid
+// locales are rejected instead of silently falling back so the UI can show
+// an actionable error.
+func (s *settingsAPI) updateAppearance(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxAppearanceBody)
+	var req appearanceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_json", "invalid JSON", nil)
+		return
+	}
+	if !isSupportedLocale(req.Locale) {
+		writeAPIError(w, http.StatusBadRequest, "settings.invalid_locale", "unsupported locale", nil)
+		return
+	}
+	if err := s.repo.SetSetting(r.Context(), settingLocale, req.Locale); err != nil {
+		s.logger.Error("persist locale failed", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to save locale"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"settings": map[string]any{"locale": req.Locale},
+		"locale":   req.Locale,
+	})
 }
 
 // saveLLMKey encrypts and persists the BYOK configuration. Response never
@@ -54,19 +117,19 @@ func (s *settingsAPI) saveLLMKey(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSettingsBody)
 	var req llmKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSON inválido"})
+		writeAPIError(w, http.StatusBadRequest, "invalid_json", "invalid JSON", nil)
 		return
 	}
 
 	req.APIKey = strings.TrimSpace(req.APIKey)
 	if req.APIKey == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "api_key é obrigatória"})
+		writeAPIError(w, http.StatusBadRequest, "api_key_required", "api_key is required", nil)
 		return
 	}
 
 	cfg := llm.Config{BaseURL: req.BaseURL, Model: req.Model}.Normalize()
 	if !strings.HasPrefix(cfg.BaseURL, "http://") && !strings.HasPrefix(cfg.BaseURL, "https://") {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "base_url deve começar com http:// ou https://"})
+		writeAPIError(w, http.StatusBadRequest, "base_url_invalid", "base_url must start with http:// or https://", nil)
 		return
 	}
 

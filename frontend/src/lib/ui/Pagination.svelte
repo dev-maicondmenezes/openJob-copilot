@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
 	import type { Snippet } from 'svelte';
 	import IconButton from './IconButton.svelte';
 	import { useViewport, viewport } from './media.svelte.js';
@@ -18,14 +19,14 @@
 		count?: Snippet;
 	}
 
-	let { page, totalPages, onchange, label = 'Paginação', leading, actions, count }: Props = $props();
+	let { page, totalPages, onchange, label, leading, actions, count }: Props = $props();
 
 	useViewport();
 	// Em phone/tablet os controles usam alvo de toque de 48px.
 	const controlSize = $derived<ControlSize>(viewport.isDesktop ? 'sm' : 'md');
 </script>
 
-<nav class="pagination" aria-label={label}>
+<nav class="pagination" aria-label={label ?? t('ui.pagination')}>
 	{#if leading}
 		<div class="slot leading">{@render leading(controlSize)}</div>
 	{/if}
@@ -35,7 +36,7 @@
 	<div class="arrows">
 		<IconButton
 			icon="arrow-left"
-			label="Página anterior"
+			label={t('ui.page_previous')}
 			variant="ghost"
 			size={controlSize}
 			disabled={page <= 1}
@@ -44,7 +45,7 @@
 		<span class="indicator" aria-live="polite"><strong>{page}</strong> / {totalPages}</span>
 		<IconButton
 			icon="chevron-right"
-			label="Próxima página"
+			label={t('ui.page_next')}
 			variant="ghost"
 			size={controlSize}
 			disabled={page >= totalPages}

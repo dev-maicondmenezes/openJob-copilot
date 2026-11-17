@@ -100,7 +100,7 @@ func (s *sourcesAPI) createSource(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSettingsBody)
 	var req createSourceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSON inválido"})
+		writeAPIError(w, http.StatusBadRequest, "invalid_json", "invalid JSON", nil)
 		return
 	}
 
@@ -113,11 +113,11 @@ func (s *sourcesAPI) createSource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.ID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id é obrigatório"})
+		writeAPIError(w, http.StatusBadRequest, "source.id_required", "id is required", nil)
 		return
 	}
 	if req.Name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "nome é obrigatório"})
+		writeAPIError(w, http.StatusBadRequest, "source.name_required", "name is required", nil)
 		return
 	}
 	if err := s.orchestrator.Registry().Validate(req.Adapter); err != nil {
@@ -194,7 +194,7 @@ func (s *sourcesAPI) updateSource(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	src, err := s.repo.GetSource(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "fonte não encontrada"})
+		writeAPIError(w, http.StatusNotFound, "source.not_found", "source not found", map[string]any{"id": id})
 		return
 	}
 	if err != nil {
@@ -205,7 +205,7 @@ func (s *sourcesAPI) updateSource(w http.ResponseWriter, r *http.Request) {
 
 	var req updateSourceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSON inválido"})
+		writeAPIError(w, http.StatusBadRequest, "invalid_json", "invalid JSON", nil)
 		return
 	}
 
@@ -262,7 +262,7 @@ func (s *sourcesAPI) updateSource(w http.ResponseWriter, r *http.Request) {
 func (s *sourcesAPI) deleteSource(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := s.repo.DeleteSource(r.Context(), id); errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "fonte não encontrada"})
+		writeAPIError(w, http.StatusNotFound, "source.not_found", "source not found", map[string]any{"id": id})
 		return
 	} else if err != nil {
 		s.logger.Error("delete source failed", "id", id, "err", err)
@@ -276,7 +276,7 @@ func (s *sourcesAPI) testSource(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	src, err := s.repo.GetSource(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "fonte não encontrada"})
+		writeAPIError(w, http.StatusNotFound, "source.not_found", "source not found", map[string]any{"id": id})
 		return
 	}
 	if err != nil {

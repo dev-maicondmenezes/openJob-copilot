@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
+	import { errorText } from '#lib/i18n/errors.js';
 	import { onMount } from 'svelte';
 	import SettingsNav from '#lib/components/SettingsNav.svelte';
 	import PageHeader from '#lib/ui/PageHeader.svelte';
@@ -65,13 +67,13 @@
 				})
 			]);
 			if (nRes.ok && tRes.ok) {
-				message = { kind: 'success', text: 'Configurações salvas.' };
+				message = { kind: 'success', text: t('notif_settings.saved') };
 			} else {
 				const err = await (nRes.ok ? tRes : nRes).json().catch(() => ({}));
-				message = { kind: 'error', text: err.error ?? 'Falha ao salvar configurações.' };
+				message = { kind: 'error', text: errorText(err, t('discovery.error.save')) };
 			}
 		} catch {
-			message = { kind: 'error', text: 'Falha de rede ao salvar configurações.' };
+			message = { kind: 'error', text: t('discovery.error.save_network') };
 		} finally {
 			saving = false;
 		}
@@ -84,19 +86,19 @@
 		if (perm === 'granted') {
 			notif.browser_notifications = true;
 			void saveAll();
-			new Notification('openJob', { body: 'Notificações do navegador ativadas.' });
+			new Notification(t('common.app_name'), { body: t('notif_settings.browser_enabled') });
 		}
 	}
 </script>
 
 <svelte:head>
-	<title>Notificações & Tarefas · openJob</title>
+	<title>{t('notif_settings.meta_title')}</title>
 </svelte:head>
 
 <PageHeader
-	title="Configurações"
-	subtitle="Canais de notificação e parâmetros do worker de tarefas de IA."
-	breadcrumb={[{ label: 'Início', href: '/' }, { label: 'Configurações', href: '/settings' }, { label: 'Notificações & Tarefas' }]}
+	title={t('common.settings')}
+	subtitle={t('notif_settings.subtitle_full')}
+	breadcrumb={[{ label: t('common.home'), href: '/' }, { label: t('common.settings'), href: '/settings' }, { label: t('nav.settings_notifications') }]}
 />
 
 <SettingsNav active="notifications" />
@@ -106,55 +108,52 @@
 {/if}
 
 <div class="settings-grid">
-	<Card title="Notificações" subtitle="Sino in-app, retenção e notificações do navegador.">
+	<Card title={t('common.notifications')} subtitle={t('notif_settings.subtitle')}>
 		<div class="switches">
 			<Switch
-				label="Sino in-app ativado"
-				description="Feed persistido em /notifications. Desativar não afeta o Telegram."
+				label={t('notif_settings.in_app')}
+				description={t('notif_settings.in_app_desc')}
 				bind:checked={notif.in_app_enabled}
 			/>
-			<Field label="Retenção (dias)" for="retention_days" hint="Notificações lidas há mais tempo que isso são apagadas. Não lidas nunca são.">
-				<Input id="retention_days" type="number" min="1" max="3650" bind:value={notif.retention_days} />
+			<Field label={t('notif_settings.retention')} for="retention_days" hint={t('notif_settings.retention_hint_full')}>
+				<input id="retention_days" type="number" min="1" max="3650" bind:value={notif.retention_days} />
 			</Field>
 			<Switch
-				label="Notificações do navegador"
+				label={t('notif_settings.browser')}
 				description={browserPerm === 'unsupported'
-					? 'Sem suporte neste navegador.'
+					? t('notif_settings.browser.unsupported')
 					: browserPerm === 'denied'
-						? 'Permissão negada nas configurações do navegador.'
+						? t('notif_settings.browser.denied')
 						: browserPerm === 'granted'
-							? 'Dispara só com a aba em background (best-effort).'
-							: 'Precisa de permissão do navegador.'}
+							? t('notif_settings.browser.background')
+							: t('notif_settings.browser.needs_permission')}
 				bind:checked={notif.browser_notifications}
 				disabled={browserPerm === 'unsupported' || browserPerm === 'denied'}
 			/>
 		</div>
 		{#if browserPerm === 'default'}
-			<Button variant="secondary" onclick={enableBrowserNotifications}>Permitir notificações do navegador</Button>
+			<Button variant="secondary" onclick={enableBrowserNotifications}>{t('notif_settings.browser.allow')}</Button>
 		{/if}
 		{#if !notif.in_app_enabled}
-			<Alert severity="warning" title="Sino in-app desligado">Novas notificações não serão gravadas.</Alert>
+			<Alert severity="warning" title={t('notif_settings.in_app_off_title')}>{t('notif_settings.in_app_off_desc')}</Alert>
 		{/if}
 	</Card>
 
-	<Card title="Tarefas de IA (worker)" subtitle="Concorrência e intervalo de varredura da fila.">
+	<Card title={t('notif_settings.tasks_title')} subtitle={t('notif_settings.tasks_subtitle_full')}>
 		<div class="switches">
-			<Field label="Concorrência máxima" for="max_concurrency" hint="1 a 8 workers em paralelo (1–8). Afeta imediatamente, sem restart.">
-				<Input id="max_concurrency" type="number" min="1" max="8" bind:value={tasksCfg.max_concurrency} />
+			<Field label={t('notif_settings.concurrency')} for="max_concurrency" hint={t('notif_settings.concurrency_hint_full')}>
+				<input id="max_concurrency" type="number" min="1" max="8" bind:value={tasksCfg.max_concurrency} />
 			</Field>
-			<Field label="Intervalo de polling (ms)" for="worker_poll_ms" hint="Entre 100 e 5000ms entre varreduras da fila.">
-				<Input id="worker_poll_ms" type="number" min="100" max="5000" step="100" bind:value={tasksCfg.worker_poll_ms} />
+			<Field label={t('notif_settings.poll_interval')} for="worker_poll_ms" hint={t('notif_settings.poll_hint_full')}>
+				<input id="worker_poll_ms" type="number" min="100" max="5000" step="100" bind:value={tasksCfg.worker_poll_ms} />
 			</Field>
 		</div>
-		<p class="hint">
-			O scoring compartilha um único limite de requisições por provedor de IA — aumentar a concorrência
-			não estoura o rate limit do seu BYOK.
-		</p>
+		<p class="hint">{t('notif_settings.rate_limit_note')}</p>
 	</Card>
 </div>
 
 <div class="form-actions">
-	<Button loading={saving} onclick={saveAll}>Salvar</Button>
+	<Button loading={saving} onclick={saveAll}>{t('common.save')}</Button>
 </div>
 
 <style>

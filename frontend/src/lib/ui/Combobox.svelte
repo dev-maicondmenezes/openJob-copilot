@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
+	import { localeState } from '#lib/i18n/locale.svelte.js';
 	interface Option {
 		value: string;
 		label: string;
@@ -17,8 +19,8 @@
 		label,
 		value = $bindable(''),
 		options,
-		placeholder = 'Buscar…',
-		emptyLabel = 'Nenhuma opção',
+		placeholder,
+		emptyLabel,
 		onSelect
 	}: Props = $props();
 
@@ -26,7 +28,7 @@
 	let open = $state(false);
 
 	const filtered = $derived(
-		options.filter((option) => option.label.toLocaleLowerCase('pt-BR').includes(query.toLocaleLowerCase('pt-BR')))
+		options.filter((option) => option.label.toLocaleLowerCase(localeState.current).includes(query.toLocaleLowerCase(localeState.current)))
 	);
 	const selectedLabel = $derived(options.find((option) => option.value === value)?.label ?? '');
 
@@ -46,7 +48,7 @@
 		aria-expanded={open}
 		aria-controls="combobox-list"
 		autocomplete="off"
-		{placeholder}
+		placeholder={placeholder ?? t('ui.combobox_search')}
 		bind:value={query}
 		onfocus={() => (open = true)}
 		oninput={() => (open = true)}
@@ -59,7 +61,7 @@
 		}}
 	/>
 	{#if value && !open}
-		<span class="selection" aria-live="polite">Selecionado: {selectedLabel}</span>
+		<span class="selection" aria-live="polite">{t('ui.selected', { value: selectedLabel })}</span>
 	{/if}
 	{#if open}
 		<ul id="combobox-list" class="options" role="listbox" aria-label={label}>
@@ -68,7 +70,7 @@
 					<button type="button" onclick={() => choose(option)}>{option.label}</button>
 				</li>
 			{:else}
-				<li class="empty">{emptyLabel}</li>
+				<li class="empty">{emptyLabel ?? t('ui.combobox_empty')}</li>
 			{/each}
 		</ul>
 	{/if}

@@ -1,6 +1,9 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
+	import { errorText } from '#lib/i18n/errors.js';
 	import { onMount } from 'svelte';
 	import { toast } from '#lib/toast.svelte.ts';
+	import { currentLocale, formatDate } from '#lib/i18n/format.js';
 	import PageHeader from '#lib/ui/PageHeader.svelte';
 	import Card from '#lib/ui/Card.svelte';
 	import Badge from '#lib/ui/Badge.svelte';
@@ -32,13 +35,16 @@
 
 	const STATUSES = ['pending', 'sent', 'interview', 'rejected', 'offer'] as const;
 	type Status = (typeof STATUSES)[number];
-	const STATUS_LABEL: Record<Status, string> = {
-		pending: 'Pendente',
-		sent: 'Enviada',
-		interview: 'Entrevista',
-		rejected: 'Rejeitada',
-		offer: 'Oferta'
-	};
+	function statusLabel(status: string): string {
+		switch (status) {
+			case 'pending': return t('applications.status.pending');
+			case 'sent': return t('applications.status.sent');
+			case 'interview': return t('applications.status.interview');
+			case 'rejected': return t('applications.status.rejected');
+			case 'offer': return t('applications.status.offer');
+			default: return status;
+		}
+	}
 	const STATUS_TONE: Record<Status, 'warning' | 'info' | 'primary' | 'error' | 'success'> = {
 		pending: 'warning',
 		sent: 'info',
@@ -46,7 +52,7 @@
 		rejected: 'error',
 		offer: 'success'
 	};
-	const statusOptions = STATUSES.map((value) => ({ value, label: STATUS_LABEL[value] }));
+	const statusOptions = $derived(STATUSES.map((value) => ({ value, label: statusLabel(value) })));
 
 	let apps: AppItem[] = $state([]);
 	let loading = $state(true);
@@ -71,8 +77,8 @@
 		apps.filter((app) => {
 			if (statusFilter.length > 0 && !statusFilter.includes(app.status)) return false;
 			if (onlyTailored && !app.has_tailored) return false;
-			const q = searchTerm.trim().toLocaleLowerCase('pt-BR');
-			if (q && !`${app.job?.title ?? ''} ${app.job?.company ?? ''}`.toLocaleLowerCase('pt-BR').includes(q)) return false;
+			const q = searchTerm.trim().toLocaleLowerCase(currentLocale());
+			if (q && !`${app.job?.title ?? ''} ${app.job?.company ?? ''}`.toLocaleLowerCase(currentLocale()).includes(q)) return false;
 			return true;
 		})
 	);
@@ -83,7 +89,11 @@
 		filteredApps.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 	);
 	const rangeLabel = $derived(
-		`${filteredApps.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1}..${Math.min(currentPage * PAGE_SIZE, filteredApps.length)} de ${filteredApps.length} candidaturas`
+		t('applications.range_full', {
+			start: filteredApps.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1,
+			end: Math.min(currentPage * PAGE_SIZE, filteredApps.length),
+			count: filteredApps.length
+		})
 	);
 
 	// Desktop pagina; phone/tablet usa carregamento progressivo na rolagem.
@@ -122,10 +132,10 @@
 				apps = body.applications ?? [];
 			} else {
 				const err = await res.json().catch(() => ({}));
-				error = err.error ?? `Erro ${res.status} ao carregar candidaturas.`;
+				error = errorText(err, t('applications.error.load_http', { status: res.status }));
 			}
 		} catch {
-			error = 'Falha de rede ao carregar candidaturas.';
+			error = t('applications.error.load_network');
 		} finally {
 			loading = false;
 		}
@@ -142,25 +152,25 @@
 			});
 			if (res.ok) {
 				app.status = status;
-				toast('success', `${app.job?.title ?? 'Candidatura'} → ${STATUS_LABEL[status as Status] ?? status}`);
+				toast('success', t('applications.toast.changed', { title: app.job?.title ?? t('applications.toast.label'), label: statusLabel(status) }));
 			} else {
 				const err = await res.json().catch(() => ({}));
-				toast('error', err.error ?? 'Falha ao mudar status.');
+				toast('error', errorText(err, t('applications.error.status')));
 			}
 		} catch {
-			toast('error', 'Falha de rede ao mudar status.');
+			toast('error', t('applications.error.status_network'));
 		} finally {
 			changingId = null;
 		}
 	}
 
 	function dateFmt(iso: string): string {
-		return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+		return formatDate(iso, { day: '2-digit', month: 'short', year: undefined });
 	}
 
 	function itemsFor(app: AppItem) {
 		return STATUSES.filter((status) => status !== app.status).map((status) => ({
-			label: `Mover para: ${STATUS_LABEL[status]}`,
+			label: t('applications.move_to', { label: statusLabel(status) }),
 			icon: 'chevron-right',
 			onSelect: () => changeStatus(app, status)
 		}));
@@ -190,11 +200,11 @@
 </script>
 
 <svelte:head>
-	<title>Candidaturas · openJob</title>
+	<title>{t('common.applications')} · {t('common.app_name')}</title>
 </svelte:head>
 
 {#snippet statusMenu(app: AppItem)}
-	<Menu items={itemsFor(app)} label={`Alterar status de ${app.job?.title ?? app.id}`} />
+	<Menu items={itemsFor(app)} label={t('applications.change_status', { title: app.job?.title ?? app.id })} />
 {/snippet}
 
 {#snippet appCard(app: AppItem)}
@@ -208,12 +218,12 @@
 	>
 		{#snippet actions()}
 			<Badge tone={STATUS_TONE[app.status as Status] ?? 'neutral'}>
-				{STATUS_LABEL[app.status as Status] ?? app.status}
+				{statusLabel(app.status)}
 			</Badge>
 			{@render statusMenu(app)}
 			<IconButton
 				icon="external"
-				label="Ver detalhe da candidatura"
+				label={t('applications.view_detail')}
 				variant="ghost"
 				size="sm"
 				onclick={() => (detailApp = app)}
@@ -221,19 +231,19 @@
 		{/snippet}
 		<div class="card-content">
 			<div class="headline">
-				<strong class="job-title" title={app.job?.title ?? ''}>{app.job?.title ?? `Vaga #${app.job_id}`}</strong>
+				<strong class="job-title" title={app.job?.title ?? ''}>{app.job?.title ?? t('applications.job_label', { id: app.job_id })}</strong>
 				<span class="company" title={app.job?.company ?? ''}>{app.job?.company ?? ''}</span>
 			</div>
 			<div class="meta-row">
 				{#if app.job?.score_fit !== null && app.job?.score_fit !== undefined}
-					<Badge tone="info">Score {app.job.score_fit}/100</Badge>
+					<Badge tone="info">{t('common.score')} {app.job.score_fit}/100</Badge>
 				{/if}
-				{#if app.has_tailored}<Badge tone="success">currículo adaptado</Badge>{/if}
-				<span class="updated">Atualizada em {dateFmt(app.updated_at)}</span>
+				{#if app.has_tailored}<Badge tone="success">{t('applications.resume_adapted')}</Badge>{/if}
+				<span class="updated">{t('sources.col.updated')} {dateFmt(app.updated_at)}</span>
 			</div>
 			{#if app.job?.url}
 				<a class="link" href={app.job.url} target="_blank" rel="noopener noreferrer">
-					<Icon name="external" size={16} /> Ver vaga
+					<Icon name="external" size={16} /> {t('applications.view_job')}
 				</a>
 			{/if}
 		</div>
@@ -241,38 +251,38 @@
 {/snippet}
 
 {#snippet filterFields(prefix: string)}
-	<Field label="Status">
-		<MultiSelect label="Filtrar por status" options={statusOptions} bind:value={statusFilter} allLabel="Todos os status" onchange={() => (currentPage = 1)} />
+	<Field label={t('common.status')}>
+		<MultiSelect label={t('applications.filters.status_multi')} options={statusOptions} bind:value={statusFilter} allLabel={t('jobs.status_all')} onchange={() => (currentPage = 1)} />
 	</Field>
-	<Field label="Buscar candidatura" for="{prefix}-search">
-		<Input id="{prefix}-search" type="search" bind:value={searchTerm} oninput={() => (currentPage = 1)} placeholder="Título ou empresa" />
+	<Field label={t('applications.filters.search')} for="{prefix}-search">
+		<input id="{prefix}-search" type="search" bind:value={searchTerm} oninput={() => (currentPage = 1)} placeholder={t('applications.filters.search_placeholder')} />
 	</Field>
-	<Field label="Currículo">
-		<Checkbox label="Só com currículo adaptado" bind:checked={onlyTailored} />
+	<Field label={t('common.curriculum')}>
+		<Checkbox label={t('applications.filters.only_adapted')} bind:checked={onlyTailored} />
 	</Field>
 {/snippet}
 
 {#snippet filterIcons()}
 	{#if hasActiveFilters}
-		<IconButton icon="x" label="Limpar filtros" variant="ghost" onclick={clearFilters} />
+		<IconButton icon="x" label={t('jobs.filters.clear')} variant="ghost" onclick={clearFilters} />
 	{/if}
 {/snippet}
 
 <PageHeader
-	title="Candidaturas"
+	title={t('common.applications')}
 	subtitle={viewport.isDesktop
-		? 'Acompanhe o pipeline das vagas aprovadas e arraste os cards entre as colunas para atualizar o status.'
-		: 'Acompanhe o pipeline das vagas aprovadas e atualize o status de cada candidatura.'}
-	breadcrumb={[{ label: 'Início', href: '/' }, { label: 'Candidaturas' }]}
+		? t('applications.subtitle_desktop')
+		: t('applications.subtitle_mobile')}
+	breadcrumb={[{ label: t('common.home'), href: '/' }, { label: t('common.applications') }]}
 />
 
 {#if error}
-	<Alert severity="error" title="Não foi possível carregar">{error}</Alert>
+	<Alert severity="error" title={t('applications.error.load')}>{error}</Alert>
 {/if}
 
 <div class="filters-mobile">
 	<Button variant="ghost" onclick={() => (filtersOpen = true)} class="filters-trigger">
-		<Icon name="sliders" size={20} /> Filtros
+		<Icon name="sliders" size={20} /> {t('common.filters')}
 	</Button>
 	{@render filterIcons()}
 </div>
@@ -283,45 +293,45 @@
 </div>
 
 {#if loading}
-	<Card><p class="hint">Carregando candidaturas…</p></Card>
+	<Card><p class="hint">{t('applications.loading')}</p></Card>
 {:else if apps.length === 0}
 	<Card>
-		<EmptyState title="Nenhuma candidatura ainda" description="Aprove uma vaga em Vagas para começar o pipeline.">
-			<a class="cta" href="/jobs">Ir para Vagas</a>
+		<EmptyState title={t('applications.empty.title')} description={t('applications.empty.desc')}>
+			<a class="cta" href="/jobs">{t('shortcut.jobs_desc')}</a>
 		</EmptyState>
 	</Card>
 {:else if filteredApps.length === 0}
 	<Card>
-		<EmptyState title="Nenhuma candidatura com esses filtros" description="Ajuste os filtros para ver mais resultados.">
-			<Button variant="secondary" size="sm" onclick={clearFilters}>Limpar filtros</Button>
+		<EmptyState title={t('applications.empty.filtered_title')} description={t('jobs.empty.filtered_desc')}>
+			<Button variant="secondary" size="sm" onclick={clearFilters}>{t('jobs.filters.clear')}</Button>
 		</EmptyState>
 	</Card>
 {:else if viewport.isDesktop}
-	<div class="kanban" role="region" aria-label="Pipeline de candidaturas">
+	<div class="kanban" role="region" aria-label={t('applications.pipeline')}>
 		{#each STATUSES as status (status)}
 			<section
 				class="column tone-{status}"
 				class:drop-target={draggingId !== null}
-				aria-label={STATUS_LABEL[status]}
+				aria-label={statusLabel(status)}
 				ondragover={(event) => event.preventDefault()}
 				ondrop={(event) => onDrop(event, status)}
 			>
 				<header class="column-head">
-					<span class="column-title"><span class="dot"></span>{STATUS_LABEL[status]}</span>
+					<span class="column-title"><span class="dot"></span>{statusLabel(status)}</span>
 					<Badge>{pagedApps.filter((app) => app.status === status).length}</Badge>
 				</header>
 				<div class="column-body">
 					{#each pagedApps.filter((app) => app.status === status) as app (app.id)}
 						{@render appCard(app)}
 					{:else}
-						<p class="column-empty">Arraste uma candidatura para cá</p>
+						<p class="column-empty">{t('applications.drop_here')}</p>
 					{/each}
 				</div>
 			</section>
 		{/each}
 	</div>
 {:else}
-	<p class="hint count-mobile">{filteredApps.length} candidaturas</p>
+	<p class="hint count-mobile">{t('applications.count', { count: filteredApps.length })}</p>
 	<div class="apps-scroll" onscroll={onListScroll}>
 		<div class="grid grid-2 app-grid">
 			{#each visibleApps as app (app.id)}
@@ -329,7 +339,7 @@
 			{/each}
 		</div>
 		{#if loadingMore}
-			<div class="list-loading" role="status">Carregando mais…</div>
+			<div class="list-loading" role="status">{t('ui.loading_more')}</div>
 		{/if}
 	</div>
 {/if}
@@ -344,43 +354,43 @@
 			page={currentPage}
 			totalPages={totalPages}
 			onchange={goToPage}
-			label="Paginação de candidaturas"
+			label={t('applications.pagination')}
 			count={appCount}
 		/>
 	</PageFooter>
 {/if}
 
-<Dialog open={filtersOpen} onclose={() => (filtersOpen = false)} title="Filtrar candidaturas">
+<Dialog open={filtersOpen} onclose={() => (filtersOpen = false)} title={t('applications.filter_dialog')}>
 	<div class="filter-sheet">
 		{@render filterFields('sheet')}
 	</div>
 	{#snippet footer()}
-		<Button variant="ghost" onclick={clearFilters}>Limpar</Button>
-		<Button onclick={() => (filtersOpen = false)}>Aplicar</Button>
+		<Button variant="ghost" onclick={clearFilters}>{t('common.clear')}</Button>
+		<Button onclick={() => (filtersOpen = false)}>{t('common.apply')}</Button>
 	{/snippet}
 </Dialog>
 
 {#if detailApp}
-	<Dialog open onclose={() => (detailApp = null)} title={detailApp.job?.title ?? `Vaga #${detailApp.job_id}`} description={detailApp.job?.company}>
+	<Dialog open onclose={() => (detailApp = null)} title={detailApp.job?.title ?? t('applications.job_label', { id: detailApp.job_id })} description={detailApp.job?.company}>
 		<div class="detail">
 			<Badge tone={STATUS_TONE[detailApp.status as Status] ?? 'neutral'}>
-				{STATUS_LABEL[detailApp.status as Status] ?? detailApp.status}
+				{statusLabel(detailApp.status)}
 			</Badge>
 			{#if detailApp.job?.score_fit !== null && detailApp.job?.score_fit !== undefined}
-				<p class="muted">Score de fit: {detailApp.job.score_fit}/100</p>
+				<p class="muted">{t('applications.score_fit', { score: detailApp.job.score_fit })}</p>
 			{/if}
 			{#if detailApp.job?.url}
 				<a class="link" href={detailApp.job.url} target="_blank" rel="noopener noreferrer">
-					<Icon name="external" size={16} /> Ver vaga
+					<Icon name="external" size={16} /> {t('applications.view_job')}
 				</a>
 			{/if}
 			<SegmentedControl
 				options={statusOptions}
 				value={detailApp.status}
-				label="Alterar status da candidatura"
+				label={t('applications.change_status_dialog')}
 				onchange={(status) => changeStatus(detailApp!, status)}
 			/>
-			<p class="muted">Atualizada em {dateFmt(detailApp.updated_at)}</p>
+			<p class="muted">{t('applications.updated_at', { date: dateFmt(detailApp.updated_at) })}</p>
 		</div>
 	</Dialog>
 {/if}

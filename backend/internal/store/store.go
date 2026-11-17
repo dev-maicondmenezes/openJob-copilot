@@ -83,15 +83,17 @@ type NotifyLog struct {
 // Notification is an in-app notification (CP10): a persisted feed entry shown
 // in the bell dropdown and on the /notifications page.
 type Notification struct {
-	ID        int64
-	Type      string // 'application_status' | 'discovery_result' | 'task_completed' | 'task_failed' | 'source_error' | 'test'
-	Severity  string // 'info' | 'success' | 'warning' | 'error'
-	Title     string
-	Body      string
-	Link      string // internal SPA deep link (e.g. "/applications/42")
-	Metadata  string // JSON, empty when absent
-	ReadAt    *time.Time
-	CreatedAt time.Time
+	ID         int64
+	Type       string // 'application_status' | 'discovery_result' | 'task_completed' | 'task_failed' | 'source_error' | 'test'
+	Severity   string // 'info' | 'success' | 'warning' | 'error'
+	Title      string // legado: texto resolvido (notificações antigas)
+	Body       string // legado: texto resolvido (notificações antigas)
+	I18nKey    string // CP13: ex. "notifications.application.status_changed"
+	I18nParams string // CP13: JSON com os parâmetros ICU
+	Link       string // internal SPA deep link (e.g. "/applications/42")
+	Metadata   string // JSON, empty when absent
+	ReadAt     *time.Time
+	CreatedAt  time.Time
 }
 
 // NotificationFilter selects which notifications a listing returns.
@@ -192,12 +194,12 @@ type Repository interface {
 	UpdateTaskProgress(ctx context.Context, id string, progress int) error
 	FinishTask(ctx context.Context, id, status, result, errMsg string) error
 	RequeueTaskWithBackoff(ctx context.Context, id string, nextRunAt time.Time, errMsg string) error
-	RetryTask(ctx context.Context, id string) error         // manual retry: resets attempts, clears error/result
+	RetryTask(ctx context.Context, id string) error // manual retry: resets attempts, clears error/result
 	CancelQueuedTask(ctx context.Context, id, errMsg string) (bool, error)
 	RequeueRunningTasks(ctx context.Context) (int64, error) // boot recovery for orphaned tasks
 	CountTasksByStatus(ctx context.Context) (map[string]int, error)
 	CountTasks(ctx context.Context, statuses []string, typ string) (int, error)
 	CountTasksFailedSince(ctx context.Context, since time.Time) (int, error)
 	CancelAllQueuedTasks(ctx context.Context, errMsg string) (int64, error) // bulk action
-	RetryAllFailedTasks(ctx context.Context) (int64, error)                // bulk action
+	RetryAllFailedTasks(ctx context.Context) (int64, error)                 // bulk action
 }

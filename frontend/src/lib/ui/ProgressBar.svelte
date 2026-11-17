@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
 	interface Props {
 		value: number;
 		max?: number;
@@ -24,7 +25,7 @@
 		aria-valuemin="0"
 		aria-valuemax={max}
 		aria-valuenow={value}
-		aria-label={label ?? 'Progresso'}
+		aria-label={label ?? t('ui.progress')}
 	>
 		<div class="bar" style:width="{pct}%"></div>
 	</div>

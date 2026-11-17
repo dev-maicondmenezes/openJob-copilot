@@ -1,3 +1,5 @@
+import { t } from '#lib/i18n/t.js';
+
 export interface Job {
 	id: number;
 	title: string;
@@ -14,11 +16,14 @@ export interface Job {
 	matched_resume_terms?: string[];
 }
 
-export const STATUS_LABELS: Record<string, string> = {
-	new: 'nova',
-	approved: 'aprovada',
-	discarded: 'descartada'
-};
+export function statusLabel(status: string): string {
+	switch (status) {
+		case 'new': return t('jobs.status_label.new');
+		case 'approved': return t('jobs.status_label.approved');
+		case 'discarded': return t('jobs.status_label.discarded');
+		default: return status;
+	}
+}
 
 export const SOURCE_LABELS: Record<string, string> = {
 	himalayas: 'Himalayas',

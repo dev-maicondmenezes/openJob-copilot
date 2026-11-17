@@ -1,11 +1,13 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
 	import { page } from '$app/state';
 	import Icon from './Icon.svelte';
-	import { BOTTOM_NAV, isActive } from './nav.js';
+	import { bottomNav, isActive } from './nav.js';
+	const items = $derived(bottomNav());
 </script>
 
-<nav class="bottom-nav" aria-label="Navegação principal">
-	{#each BOTTOM_NAV as item (item.href)}
+<nav class="bottom-nav" aria-label={t('nav.main')}>
+	{#each items as item (item.href)}
 		{@const active = isActive(item.href, page.url.pathname)}
 		<a
 			href={item.href}

@@ -1,6 +1,7 @@
 <script lang="ts">
+	import { t } from '#lib/i18n/t.js';
 	import Dialog from './Dialog.svelte';
-	import { SHORTCUTS } from '../shortcuts.js';
+	import { getShortcuts } from '../shortcuts.js';
 
 	interface Props {
 		open: boolean;
@@ -8,11 +9,12 @@
 	}
 
 	let { open, onclose }: Props = $props();
+	const shortcuts = $derived(getShortcuts());
 </script>
 
-<Dialog {open} {onclose} title="Atalhos de teclado" description="Disponíveis em desktop, fora de campos de texto.">
+<Dialog {open} {onclose} title={t('nav.keyboard_shortcuts')} description={t('shortcuts.description')}>
 	<dl class="shortcuts">
-		{#each SHORTCUTS as shortcut (shortcut.id)}
+		{#each shortcuts as shortcut (shortcut.id)}
 			<div class="row">
 				<dt>{shortcut.description}</dt>
 				<dd><kbd>{shortcut.keys}</kbd></dd>

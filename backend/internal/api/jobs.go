@@ -36,6 +36,7 @@ func registerJobs(r chi.Router, j *jobsAPI) {
 	r.Post("/jobs/manual", j.createManual)
 	r.Post("/jobs/fetch", j.fetchJob)
 	r.Get("/jobs", j.listJobs)
+	r.Get("/jobs/{id}", j.getJob) // CP13: detalhe + erro job.not_found
 	r.Post("/jobs/{id}/score", j.scoreJob)
 	r.Post("/jobs/{id}/approve", j.approveJob)
 	r.Post("/jobs/{id}/discard", j.discardJob)
@@ -59,7 +60,7 @@ func (j *jobsAPI) createManual(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSettingsBody)
 	var req manualJobRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSON inválido"})
+		writeAPIError(w, http.StatusBadRequest, "invalid_json", "invalid JSON", nil)
 		return
 	}
 
@@ -69,15 +70,15 @@ func (j *jobsAPI) createManual(w http.ResponseWriter, r *http.Request) {
 	req.Description = strings.TrimSpace(req.Description)
 
 	if req.Title == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "título é obrigatório"})
+		writeAPIError(w, http.StatusBadRequest, "job.title_required", "title is required", nil)
 		return
 	}
 	if req.Company == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "empresa é obrigatória"})
+		writeAPIError(w, http.StatusBadRequest, "job.company_required", "company is required", nil)
 		return
 	}
 	if req.Description == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "descrição da vaga (JD) é obrigatória"})
+		writeAPIError(w, http.StatusBadRequest, "job.jd_required", "job description is required", nil)
 		return
 	}
 
@@ -143,12 +144,12 @@ func (j *jobsAPI) fetchJob(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSettingsBody)
 	var req fetchJobRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSON inválido"})
+		writeAPIError(w, http.StatusBadRequest, "invalid_json", "invalid JSON", nil)
 		return
 	}
 	req.URL = strings.TrimSpace(req.URL)
 	if req.URL == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "url é obrigatória"})
+		writeAPIError(w, http.StatusBadRequest, "job.url_required", "url is required", nil)
 		return
 	}
 
@@ -248,6 +249,25 @@ func jobPayload(job store.Job) map[string]any {
 
 // ---- POST /api/jobs/:id/score ------------------------------------------------
 
+// getJob answers GET /api/jobs/{id} with the vacancy or the CP13 error code.
+func (j *jobsAPI) getJob(w http.ResponseWriter, r *http.Request) {
+	jobID, ok := parseIDParam(w, r)
+	if !ok {
+		return
+	}
+	job, err := j.repo.GetJob(r.Context(), jobID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeAPIError(w, http.StatusNotFound, "job.not_found", "job not found", map[string]any{"id": jobID})
+		return
+	}
+	if err != nil {
+		j.logger.Error("fetch job failed", "id", jobID, "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to fetch job"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"job": job})
+}
+
 // scoreJob sends JD + base curriculum to the LLM, persists score_fit and
 // score_reason, and returns them. On any LLM failure the score stays NULL.
 func (j *jobsAPI) scoreJob(w http.ResponseWriter, r *http.Request) {
@@ -259,7 +279,7 @@ func (j *jobsAPI) scoreJob(w http.ResponseWriter, r *http.Request) {
 
 	job, err := j.repo.GetJob(ctx, jobID)
 	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "vaga não encontrada"})
+		writeAPIError(w, http.StatusNotFound, "job.not_found", "job not found", map[string]any{"id": jobID})
 		return
 	}
 	if err != nil {
@@ -337,7 +357,7 @@ func (j *jobsAPI) approveJob(w http.ResponseWriter, r *http.Request) {
 
 	job, err := j.repo.GetJob(ctx, jobID)
 	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "vaga não encontrada"})
+		writeAPIError(w, http.StatusNotFound, "job.not_found", "job not found", map[string]any{"id": jobID})
 		return
 	}
 	if err != nil {
@@ -409,7 +429,7 @@ func (j *jobsAPI) discardJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := j.repo.UpdateJobStatus(r.Context(), jobID, "discarded"); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "vaga não encontrada"})
+			writeAPIError(w, http.StatusNotFound, "job.not_found", "job not found", map[string]any{"id": jobID})
 			return
 		}
 		j.logger.Error("discard job failed", "id", jobID, "err", err)
@@ -481,21 +501,19 @@ func (j *jobsAPI) updateApplicationStatus(w http.ResponseWriter, r *http.Request
 		Status string `json:"status"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSON inválido"})
+		writeAPIError(w, http.StatusBadRequest, "invalid_json", "invalid JSON", nil)
 		return
 	}
 	req.Status = strings.TrimSpace(req.Status)
 	if !validApplicationStatuses[req.Status] {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "status inválido — use pending, sent, interview, rejected ou offer",
-		})
+		writeAPIError(w, http.StatusBadRequest, "application.invalid_status", "invalid status", nil)
 		return
 	}
 
 	ctx := r.Context()
 	app, err := j.repo.GetApplication(ctx, appID)
 	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "candidatura não encontrada"})
+		writeAPIError(w, http.StatusNotFound, "application.not_found", "application not found", map[string]any{"id": appID})
 		return
 	}
 	if err != nil {
@@ -552,7 +570,7 @@ func (j *jobsAPI) updateApplicationStatus(w http.ResponseWriter, r *http.Request
 func parseIDParam(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil || id <= 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id inválido"})
+		writeAPIError(w, http.StatusBadRequest, "invalid_id", "invalid id", nil)
 		return 0, false
 	}
 	return id, true

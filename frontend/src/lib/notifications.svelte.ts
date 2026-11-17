@@ -8,6 +8,9 @@ export interface NotificationItem {
 	severity: string;
 	title: string;
 	body: string;
+	/** CP13: chaves aditivas — quando presentes, o texto é resolvido no locale atual. */
+	i18n_key?: string | null;
+	i18n_params?: Record<string, string | number | boolean | null> | string | null;
 	link: string | null;
 	read_at: string | null;
 	created_at: string;
