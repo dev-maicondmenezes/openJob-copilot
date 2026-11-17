@@ -1,6 +1,17 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import SettingsNav from '#lib/components/SettingsNav.svelte';
+	import PageHeader from '#lib/ui/PageHeader.svelte';
+	import Card from '#lib/ui/Card.svelte';
+	import Panel from '#lib/ui/Panel.svelte';
+	import Field from '#lib/ui/Field.svelte';
+	import Input from '#lib/ui/Input.svelte';
+	import Select from '#lib/ui/Select.svelte';
+	import Switch from '#lib/ui/Switch.svelte';
+	import Button from '#lib/ui/Button.svelte';
+	import IconButton from '#lib/ui/IconButton.svelte';
+	import Badge from '#lib/ui/Badge.svelte';
+	import Alert from '#lib/ui/Alert.svelte';
 
 	interface ResumeFilter {
 		enabled: boolean;
@@ -8,7 +19,6 @@
 		match_mode: string;
 		source_of_keywords: string;
 	}
-
 	interface DiscoverySettings {
 		keywords: string[];
 		resume_filter: ResumeFilter;
@@ -23,11 +33,11 @@
 	let matchMode = $state('any');
 	let discoveryInterval = $state('off');
 	let resumeKeywords = $state<string[]>([]);
-
 	let loading = $state(true);
 	let saving = $state(false);
 	let refreshingResume = $state(false);
 	let status: { kind: 'success' | 'error'; text: string } | null = $state(null);
+	let keywordError = $state('');
 
 	async function loadConfig(): Promise<void> {
 		const res = await fetch('/api/settings/discovery');
@@ -60,20 +70,22 @@
 		const term = newKeyword.trim();
 		if (!term) return;
 		if (keywords.length >= 5) {
-			status = { kind: 'error', text: 'Limite máximo de 5 palavras-chave atingido.' };
+			keywordError = 'Limite máximo de 5 palavras-chave atingido.';
 			return;
 		}
 		if (keywords.some((k) => k.toLowerCase() === term.toLowerCase())) {
-			status = { kind: 'error', text: `A palavra-chave "${term}" já foi adicionada.` };
+			keywordError = `A palavra-chave "${term}" já foi adicionada.`;
 			return;
 		}
 		keywords = [...keywords, term];
 		newKeyword = '';
+		keywordError = '';
 		status = null;
 	}
 
 	function removeKeyword(index: number) {
 		keywords = keywords.filter((_, i) => i !== index);
+		keywordError = '';
 		status = null;
 	}
 
@@ -114,24 +126,19 @@
 		refreshingResume = true;
 		status = null;
 		try {
-			// CP10: o refresh virou tarefa assíncrona na fila (202 + task_id);
-			// acompanhamos a tarefa em /api/tasks/{id} até ela terminar.
 			const res = await fetch('/api/settings/discovery/resume-keywords/refresh', { method: 'POST' });
 			if (!res.ok) {
 				const err = await res.json().catch(() => ({}));
 				status = { kind: 'error', text: err.error ?? 'Falha ao enfileirar extração de palavras.' };
-				refreshingResume = false;
 				return;
 			}
 			const body = await res.json();
 			const taskId = body.task_id as string | undefined;
 			if (!taskId) {
-				// fallback síncrono (resposta legada)
 				resumeKeywords = body.resume_keywords ?? [];
 				status = { kind: 'success', text: `Extração concluída: ${resumeKeywords.length} palavras-chave identificadas.` };
 				return;
 			}
-
 			for (let i = 0; i < 100; i++) {
 				await new Promise((r) => setTimeout(r, 300));
 				const tRes = await fetch(`/api/tasks/${taskId}`);
@@ -139,7 +146,7 @@
 				const task = await tRes.json();
 				if (task.status === 'done') {
 					await loadConfig();
-					status = { kind: 'success', text: `Extração concluída: ${(task.result?.count ?? 0)} palavras-chave identificadas. Acompanhe em /tasks.` };
+					status = { kind: 'success', text: `Extração concluída: ${task.result?.count ?? 0} palavras-chave identificadas. Acompanhe em /tasks.` };
 					return;
 				}
 				if (task.status === 'failed' || task.status === 'cancelled') {
@@ -160,303 +167,163 @@
 	<title>Busca & Filtros · openJob</title>
 </svelte:head>
 
-<h1 class="page-title">Configurações</h1>
-<p class="page-subtitle">
-	Parâmetros da descoberta automática de vagas e filtragem prévia por currículo.
-</p>
+<PageHeader
+	title="Configurações"
+	subtitle="Parâmetros da descoberta automática de vagas e filtragem prévia por currículo."
+	breadcrumb={[{ label: 'Início', href: '/' }, { label: 'Configurações', href: '/settings' }, { label: 'Busca & Filtros' }]}
+/>
 
 <SettingsNav active="discovery" />
 
 {#if status}
-	<div class="status {status.kind}" role="status">{status.text}</div>
+	<Alert severity={status.kind}>{status.text}</Alert>
 {/if}
 
 {#if loading}
-	<p class="empty">Carregando configurações…</p>
+	<Card><p class="hint">Carregando configurações…</p></Card>
 {:else}
-	<form onsubmit={(e) => { e.preventDefault(); saveSettings(); }}>
-		<!-- Seção 1: Palavras-chave -->
-		<section class="card" aria-label="Palavras-chave">
-			<header class="card-head">
-				<div>
-					<h2>Palavras-chave de Busca</h2>
-					<p class="hint">
-						Termos consultados nas APIs das fontes e aplicados como filtro sobre o título e descrição das vagas.
-					</p>
+	<form onsubmit={(e) => { e.preventDefault(); saveSettings(); }} class="discovery-form">
+		<Card title="Palavras-chave de Busca" class="spacious-card" subtitle="Termos consultados nas APIs e aplicados como filtro sobre título e descrição das vagas.">
+			{#snippet actions()}
+				<Badge tone={keywords.length === 5 ? 'warning' : 'neutral'}>{keywords.length}/5 termos</Badge>
+			{/snippet}
+			<Field label="Adicionar termo" for="new_keyword" error={keywordError}>
+				<div class="keyword-row">
+					<Input
+						id="new_keyword"
+						bind:value={newKeyword}
+						disabled={keywords.length >= 5}
+						placeholder={keywords.length >= 5 ? 'Limite de 5 termos atingido' : 'Ex: Golang, Backend, Remote…'}
+						onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addKeyword(); } }}
+					/>
+					<Button type="button" variant="secondary" disabled={keywords.length >= 5 || !newKeyword.trim()} onclick={addKeyword}>
+						+ Adicionar
+					</Button>
 				</div>
-				<span class="count-badge {keywords.length === 5 ? 'max' : ''}">
-					{keywords.length}/5 termos
-				</span>
-			</header>
-
-			<div class="keywords-input-row">
-				<input
-					type="text"
-					placeholder={keywords.length >= 5 ? 'Limite de 5 termos atingido' : 'Ex: Golang, Backend, Remote…'}
-					bind:value={newKeyword}
-					disabled={keywords.length >= 5}
-					onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addKeyword(); } }}
-				/>
-				<button
-					type="button"
-					class="secondary"
-					disabled={keywords.length >= 5 || !newKeyword.trim()}
-					onclick={addKeyword}
-				>
-					+ Adicionar
-				</button>
-			</div>
-
-			<div class="chips-list">
-				{#each keywords as kw, i}
-					<span class="keyword-chip">
-						{kw}
-						<button type="button" class="remove-chip" onclick={() => removeKeyword(i)} aria-label="Remover">✕</button>
+			</Field>
+			<div class="chips">
+				{#each keywords as keyword, i (keyword)}
+					<span class="chip">
+						{keyword}
+						<IconButton icon="x" label={`Remover ${keyword}`} variant="ghost" size="sm" onclick={() => removeKeyword(i)} />
 					</span>
+				{:else}
+					<p class="hint">Nenhum termo configurado — todas as vagas retornadas pelas fontes serão avaliadas.</p>
 				{/each}
-				{#if keywords.length === 0}
-					<span class="hint-empty">Nenhum termo configurado — todas as vagas retornadas pelas fontes serão avaliadas.</span>
-				{/if}
 			</div>
-		</section>
+		</Card>
 
-		<!-- Seção 2: Filtro por Currículo -->
-		<section class="card" aria-label="Filtro por Currículo">
-			<header class="card-head">
-				<div>
-					<h2>Filtro de Aderência ao Currículo</h2>
-					<p class="hint">
-						Descarta automaticamente vagas sem correspondência mínima com suas competências antes do scoring de IA.
-					</p>
-				</div>
-				<div class="toggle-wrap">
-					<input id="resume_enabled" type="checkbox" bind:checked={resumeFilterEnabled} />
-					<label for="resume_enabled">Ativo</label>
-				</div>
-			</header>
-
+		<Card title="Filtro de Aderência ao Currículo" class="spacious-card" subtitle="Descarta vagas sem correspondência mínima com suas competências antes do scoring de IA.">
+			<Switch label="Filtro ativo" bind:checked={resumeFilterEnabled} />
 			{#if resumeFilterEnabled}
-				<div class="form-grid">
-					<div>
-						<label for="min_matches">Mínimo de correspondências necessárias</label>
-						<input
-							id="min_matches"
-							type="number"
-							min="1"
-							max="10"
-							bind:value={minMatches}
-						/>
-						<p class="hint">Recomendado: 2 a 3 termos para equilibrar relevância e volume.</p>
-					</div>
-
-					<div>
-						<label for="match_mode">Modo de correspondência</label>
-						<select id="match_mode" bind:value={matchMode}>
+				<div class="grid grid-2 form-grid">
+					<Field label="Mínimo de correspondências" for="min_matches" hint="Recomendado: 2 a 3 termos para equilibrar relevância e volume.">
+						<Input id="min_matches" type="number" min="1" max="10" bind:value={minMatches} />
+					</Field>
+					<Field label="Modo de correspondência" for="match_mode">
+						<Select id="match_mode" bind:value={matchMode}>
 							<option value="any">Qualquer termo (≥ mínimo configurado)</option>
 							<option value="all">Todos os termos do currículo</option>
-						</select>
-					</div>
+						</Select>
+					</Field>
 				</div>
-
-				<div class="resume-keywords-box">
-					<div class="box-head">
-						<span class="box-title">Palavras-chave extraídas do seu currículo ({resumeKeywords.length})</span>
-						<button
-							type="button"
-							class="ghost small"
-							disabled={refreshingResume}
-							onclick={refreshResume}
-						>
-							{refreshingResume ? 'Extraindo…' : '↻ Reextrair do currículo'}
-						</button>
-					</div>
-
+				<Panel title={`Palavras-chave extraídas do currículo (${resumeKeywords.length})`}>
+					{#snippet actions()}
+						<Button type="button" variant="ghost" size="sm" loading={refreshingResume} onclick={refreshResume}>
+							↻ Reextrair do currículo
+						</Button>
+					{/snippet}
 					{#if resumeKeywords.length > 0}
-						<div class="resume-chips">
-							{#each resumeKeywords as term}
-								<span class="resume-chip">{term}</span>
-							{/each}
+						<div class="chips">
+							{#each resumeKeywords as term (term)}<span class="chip neutral">{term}</span>{/each}
 						</div>
 					{:else}
-						<p class="hint-empty">
-							Nenhuma palavra extraída ainda. Faça upload do seu currículo em <a href="/curriculum">Currículo</a> ou clique em "Reextrair".
-						</p>
+						<p class="hint">Nenhuma palavra extraída ainda. Faça upload em <a href="/curriculum">Currículo</a> ou clique em “Reextrair”.</p>
 					{/if}
-				</div>
+				</Panel>
 			{/if}
-		</section>
+		</Card>
 
-		<!-- Seção 3: Ticker / Busca periódica -->
-		<section class="card" aria-label="Busca Periódica">
-			<header class="card-head">
-				<div>
-					<h2>Busca Periódica Automática (Ticker)</h2>
-					<p class="hint">
-						Executa a descoberta em segundo plano dentro do próprio processo openJob (sem cron do sistema).
-					</p>
-				</div>
-			</header>
-
-			<label for="interval">Frequência de execução</label>
-			<select id="interval" bind:value={discoveryInterval}>
-				<option value="off">Desativada (apenas sob demanda no botão "Buscar agora")</option>
-				<option value="1h">A cada 1 hora</option>
-				<option value="6h">A cada 6 horas (Recomendado se ativo)</option>
-				<option value="24h">A cada 24 horas</option>
-			</select>
-			<p class="hint">
-				Mantenha desativado caso queira total controle de quando e quanto consultar as APIs.
-			</p>
-		</section>
+		<Card title="Busca Periódica Automática (Ticker)" class="spacious-card" subtitle="Executa a descoberta em segundo plano dentro do próprio processo openJob.">
+			<Field label="Frequência de execução" for="interval" hint="Mantenha desativado para controlar totalmente quando e quanto consultar as APIs.">
+				<Select id="interval" bind:value={discoveryInterval}>
+					<option value="off">Desativada (apenas sob demanda)</option>
+					<option value="1h">A cada 1 hora</option>
+					<option value="6h">A cada 6 horas (recomendado)</option>
+					<option value="24h">A cada 24 horas</option>
+				</Select>
+			</Field>
+		</Card>
 
 		<div class="form-actions">
-			<button type="submit" class="primary" disabled={saving}>
-				{saving ? 'Salvando alterações…' : 'Salvar Configurações'}
-			</button>
+			<Button type="submit" loading={saving}>Salvar Configurações</Button>
 		</div>
 	</form>
 {/if}
 
 <style>
-	.card {
-		background: var(--surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		padding: 1.25rem;
-		margin-bottom: 1.5rem;
-	}
-
-	.card-head {
+	.discovery-form {
 		display: flex;
-		align-items: flex-start;
-		justify-content: space-between;
-		margin-bottom: 1.25rem;
-		gap: 1rem;
+		flex-direction: column;
 	}
 
-	.card-head h2 {
-		font-size: 1.125rem;
-		margin: 0 0 0.25rem 0;
-	}
-
-	.count-badge {
-		font-size: 0.8rem;
-		font-weight: 600;
-		background: var(--surface-soft, #f1f5f9);
-		padding: 0.25rem 0.6rem;
-		border-radius: 999px;
-		color: var(--text-muted);
-		white-space: nowrap;
-	}
-
-	.count-badge.max {
-		background: #fee2e2;
-		color: #b91c1c;
-	}
-
-	.keywords-input-row {
+	.keyword-row {
 		display: flex;
-		gap: 0.5rem;
-		margin-bottom: 1rem;
+		gap: var(--space-2);
 	}
 
-	.chips-list {
+	.keyword-row :global(.input) {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.chips {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.5rem;
-		min-height: 2.25rem;
-		align-items: center;
+		gap: var(--space-2);
+		margin-top: var(--space-3);
 	}
 
-	.keyword-chip {
+	.chip {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.35rem;
-		background: var(--accent-soft, #eff6ff);
-		color: var(--primary, #1d4ed8);
-		border: 1px solid var(--border-soft, #bfdbfe);
-		padding: 0.25rem 0.6rem;
-		border-radius: 999px;
-		font-size: 0.875rem;
-		font-weight: 500;
+		gap: var(--space-2);
+		padding: var(--space-1) var(--space-3);
+		border-radius: var(--radius-pill);
+		background: var(--color-info-soft);
+		border: 1px solid var(--color-info-border);
+		color: var(--color-primary);
+		font-size: var(--text-caption);
+		font-weight: var(--weight-medium);
 	}
 
-	.remove-chip {
-		background: transparent;
-		border: none;
-		cursor: pointer;
+	.chip.neutral {
+		background: var(--color-surface);
+		border-color: var(--color-border);
+		color: var(--color-text-secondary);
+	}
+
+	:global(.chip button) {
+		border: 0;
+		background: none;
 		color: inherit;
-		font-size: 0.8rem;
+		cursor: pointer;
 		padding: 0;
 		line-height: 1;
 	}
 
-	.toggle-wrap {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		font-weight: 600;
-		font-size: 0.875rem;
-	}
-
 	.form-grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 1.25rem;
-		margin-bottom: 1.25rem;
+		margin-top: var(--space-4);
 	}
 
-	.resume-keywords-box {
-		background: var(--surface-soft, #f8fafc);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		padding: 1rem;
-	}
-
-	.box-head {
+	:global(.spacious-card .card-body) {
 		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 0.75rem;
-	}
-
-	.box-title {
-		font-size: 0.85rem;
-		font-weight: 600;
-		color: var(--text-muted);
-	}
-
-	.resume-chips {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.35rem;
-	}
-
-	.resume-chip {
-		background: var(--surface);
-		border: 1px solid var(--border);
-		font-size: 0.75rem;
-		padding: 0.15rem 0.45rem;
-		border-radius: 4px;
-		color: var(--text);
-	}
-
-	.hint-empty {
-		font-size: 0.85rem;
-		color: var(--text-muted);
-		font-style: italic;
+		flex-direction: column;
+		gap: var(--space-6);
 	}
 
 	.form-actions {
-		display: flex;
-		justify-content: flex-end;
-		margin-top: 1rem;
-		margin-bottom: 2rem;
-	}
-
-	.empty {
-		text-align: center;
-		padding: 2rem;
-		color: var(--text-muted);
+		margin-top: var(--space-6);
+		margin-bottom: var(--space-12);
 	}
 </style>

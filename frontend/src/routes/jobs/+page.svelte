@@ -1,41 +1,42 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import { toast } from '#lib/toast.svelte.ts';
 
-	interface Job {
-		id: number;
-		title: string;
-		company: string;
-		url: string;
-		description: string;
-		source: string;
-		score_fit: number | null;
-		score_reason: string;
-		status: string;
-		created_at: string;
-		external_id?: string;
-		matched_keywords?: string[];
-		matched_resume_terms?: string[];
-	}
+	import PageHeader from '#lib/ui/PageHeader.svelte';
+	import Card from '#lib/ui/Card.svelte';
+	import Field from '#lib/ui/Field.svelte';
+	import Input from '#lib/ui/Input.svelte';
+	import Textarea from '#lib/ui/Textarea.svelte';
+	import Button from '#lib/ui/Button.svelte';
+	import Badge from '#lib/ui/Badge.svelte';
+	import Alert from '#lib/ui/Alert.svelte';
+	import Select from '#lib/ui/Select.svelte';
+	import MultiSelect from '#lib/ui/MultiSelect.svelte';
+	import Dialog from '#lib/ui/Dialog.svelte';
+	import Drawer from '#lib/ui/Drawer.svelte';
+	import DataView from '#lib/ui/DataView.svelte';
+	import Icon from '#lib/ui/Icon.svelte';
+	import IconButton from '#lib/ui/IconButton.svelte';
+	import IconLinkButton from '#lib/ui/IconLinkButton.svelte';
+	import Pagination from '#lib/ui/Pagination.svelte';
+	import PageFooter from '#lib/ui/PageFooter.svelte';
+	import EmptyState from '#lib/ui/EmptyState.svelte';
+	import JobDetail from '#lib/components/JobDetail.svelte';
+	import type { DataColumn } from '#lib/ui/data.js';
+	import { viewport } from '#lib/ui/media.svelte.js';
+	import { SOURCE_LABELS, STATUS_LABELS, scoreTone, type Job } from '#lib/types/job.js';
 
 	let jobs: Job[] = $state([]);
 	let loading = $state(true);
 	let llmConfigured = $state(true);
 
-	// Discovery state
+	// Discovery (o botão do header dispara a busca; o resumo de execução saiu da tela)
 	let discovering = $state(false);
 	let discoveryKeywords = $state<string[]>([]);
-	let resumeFilterActive = $state(false);
-	let lastRunStats = $state<{
-		fetched: number;
-		filtered_keywords: number;
-		filtered_resume: number;
-		new_jobs: number;
-		duplicates: number;
-		scored: number;
-	} | null>(null);
 
-	// Form state — a URL é a fonte primária: colar o link preenche o resto.
+	// Formulário: a URL é a fonte primária.
 	let title = $state('');
 	let company = $state('');
 	let url = $state('');
@@ -43,17 +44,120 @@
 	let saving = $state(false);
 	let fetching = $state(false);
 
-	// Per-action busy flags + feedback
 	let scoringId = $state<number | null>(null);
 	let actingId = $state<number | null>(null);
 	let status: { kind: 'success' | 'error'; text: string } | null = $state(null);
+
+	// Filtros — apenas UI sobre dados já carregados (nenhuma mudança funcional).
+	let statusFilter = $state('all');
+	let sourceFilter = $state<string[]>([]);
+	let searchTerm = $state(page.url.searchParams.get('q') ?? '');
+	let filtersOpen = $state(false);
+	let newJobOpen = $state(false);
+	let detailJob: Job | null = $state(null);
+	let selectedJob: Job | null = $state(null);
+	let selectedIds = $state<number[]>([]);
+	let sortKey = $state('score');
+	let sortDir = $state<'asc' | 'desc'>('desc');
+
+	const PAGE_SIZE = 10;
+	let currentPage = $state(1);
+	let visibleCount = $state(8);
+	let loadingMore = $state(false);
+
 
 	const canSave = $derived(
 		title.trim() !== '' && company.trim() !== '' && description.trim() !== ''
 	);
 
-	// Preenche o formulário a partir da URL da vaga (POST /api/jobs/fetch).
-	// Nada é salvo automaticamente — os campos vêm preenchidos para revisão.
+	const sourceOptions = $derived(
+		Array.from(new Set(jobs.map((job) => job.source).filter(Boolean)))
+			.sort()
+			.map((source) => ({ value: source, label: SOURCE_LABELS[source] ?? source }))
+	);
+
+	const statusOptions = [
+		{ value: 'all', label: 'Todos os status' },
+		{ value: 'new', label: 'Novas' },
+		{ value: 'approved', label: 'Aprovadas' },
+		{ value: 'discarded', label: 'Descartadas' }
+	];
+
+	const filteredJobs = $derived(
+		jobs.filter((job) => {
+			if (statusFilter !== 'all' && job.status !== statusFilter) return false;
+			if (sourceFilter.length > 0 && !sourceFilter.includes(job.source)) return false;
+			const q = searchTerm.trim().toLocaleLowerCase('pt-BR');
+			if (q && !`${job.title} ${job.company} ${job.description}`.toLocaleLowerCase('pt-BR').includes(q)) return false;
+			return true;
+		})
+	);
+
+	const sortedJobs = $derived.by(() => {
+		const column = columns.find((item) => item.key === sortKey);
+		const factor = sortDir === 'asc' ? 1 : -1;
+		return [...filteredJobs].sort((a, b) => {
+			const av = column?.value?.(a) ?? '';
+			const bv = column?.value?.(b) ?? '';
+			const an = Number(av);
+			const bn = Number(bv);
+			if (!Number.isNaN(an) && !Number.isNaN(bn) && av !== '' && bv !== '') return (an - bn) * factor;
+			return String(av).localeCompare(String(bv), 'pt-BR') * factor;
+		});
+	});
+
+	const totalPages = $derived(Math.max(1, Math.ceil(sortedJobs.length / PAGE_SIZE)));
+	const pagedJobs = $derived(
+		sortedJobs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+	);
+	const rangeLabel = $derived(
+		`${sortedJobs.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1}..${Math.min(currentPage * PAGE_SIZE, sortedJobs.length)} de ${sortedJobs.length} vagas`
+	);
+	// Desktop pagina; phone/tablet carrega progressivamente (sem paginação).
+	const visibleJobs = $derived(
+		viewport.isDesktop ? pagedJobs : sortedJobs.slice(0, visibleCount)
+	);
+
+	function loadMoreJobs(): void {
+		if (viewport.isDesktop || loadingMore || visibleCount >= sortedJobs.length) return;
+		loadingMore = true;
+		setTimeout(() => {
+			visibleCount += 8;
+			loadingMore = false;
+		}, 200);
+	}
+
+	const hasActiveFilters = $derived(
+		statusFilter !== 'all' || sourceFilter.length > 0 || searchTerm.trim() !== ''
+	);
+
+	function resetPage(): void {
+		currentPage = 1;
+		visibleCount = 8;
+	}
+
+	function goToPage(next: number): void {
+		currentPage = Math.min(totalPages, Math.max(1, next));
+	}
+
+	// Se a lista encolher (filtro/exclusão), mantém a página dentro do intervalo.
+	$effect(() => {
+		if (currentPage > totalPages) currentPage = totalPages;
+	});
+
+	const columns: DataColumn<Job>[] = [
+		{ key: 'title', header: 'Vaga', cardLabel: 'Vaga', value: (job) => job.title },
+		{ key: 'company', header: 'Empresa', value: (job) => job.company },
+		{ key: 'source', header: 'Fonte', value: (job) => SOURCE_LABELS[job.source] ?? job.source },
+		{ key: 'score', header: 'Score', value: (job) => (job.score_fit === null ? 'sem score' : String(job.score_fit)) },
+		{ key: 'status', header: 'Status', value: (job) => STATUS_LABELS[job.status] ?? job.status },
+		{
+			key: 'created_at',
+			header: 'Data',
+			value: (job) => new Date(job.created_at).toLocaleDateString('pt-BR')
+		},
+	];
+
 	async function fetchDraft(link: string) {
 		const target = link.trim();
 		if (!/^https?:\/\//.test(target) || fetching) return;
@@ -74,10 +178,7 @@
 				if (body.exists) {
 					status = { kind: 'error', text: 'Atenção: já existe uma vaga cadastrada com essa URL.' };
 				} else if (!body.description) {
-					status = {
-						kind: 'error',
-						text: 'Página lida, mas sem descrição extraível — cole a JD manualmente.'
-					};
+					status = { kind: 'error', text: 'Página lida, mas sem descrição extraível — cole a JD manualmente.' };
 				} else {
 					status = { kind: 'success', text: 'Dados preenchidos a partir da URL — revise antes de salvar.' };
 				}
@@ -110,7 +211,6 @@
 			if (res.ok) {
 				const data = await res.json();
 				discoveryKeywords = data.keywords ?? [];
-				resumeFilterActive = data.resume_filter?.enabled ?? false;
 			}
 		} catch {
 			// silencioso
@@ -131,17 +231,16 @@
 				discovering = false;
 				return;
 			}
-
-			// Polling status
 			for (let i = 0; i < 40; i++) {
 				await new Promise((r) => setTimeout(r, 1200));
 				const sRes = await fetch('/api/jobs/discover/status');
 				if (sRes.ok) {
 					const sData = await sRes.json();
 					if (!sData.running) {
-						if (sData.latest_run?.stats) {
-							const stats = sData.latest_run.stats;
-							lastRunStats = stats;
+						const stats = sData.latest_run?.stats as
+							| { fetched: number; new_jobs: number; scored: number }
+							| undefined;
+						if (stats) {
 							status = {
 								kind: 'success',
 								text: `Busca finalizada: ${stats.fetched} analisadas, ${stats.new_jobs} novas cadastradas (${stats.scored} pontuadas).`
@@ -165,6 +264,7 @@
 			if (res.ok) {
 				const body = await res.json();
 				jobs = body.jobs ?? [];
+				if (selectedJob) selectedJob = jobs.find((job) => job.id === selectedJob!.id) ?? null;
 			} else {
 				const err = await res.json().catch(() => ({}));
 				status = { kind: 'error', text: err.error ?? `Erro ${res.status} ao carregar vagas.` };
@@ -181,7 +281,7 @@
 			const res = await fetch('/api/settings/llm-key');
 			if (res.ok) llmConfigured = (await res.json()).configured;
 		} catch {
-			// silencioso — o erro real aparece ao pedir score
+			// silencioso
 		}
 	}
 
@@ -198,7 +298,8 @@
 			const body = await res.json().catch(() => ({}));
 			if (res.ok) {
 				title = company = url = description = '';
-				status = { kind: 'success', text: 'Vaga salva! Cole a próxima ou calcule o score.' };
+				newJobOpen = false;
+				status = { kind: 'success', text: 'Vaga salva! Você pode calcular o score ou aprovar.' };
 				await loadJobs();
 			} else {
 				status = { kind: 'error', text: body.error ?? `Erro ${res.status} ao salvar.` };
@@ -231,17 +332,15 @@
 
 	async function approve(job: Job) {
 		actingId = job.id;
-		status = null;
 		try {
 			const res = await fetch(`/api/jobs/${job.id}/approve`, { method: 'POST' });
 			const body = await res.json().catch(() => ({}));
-			if (res.ok) {
-				await goto('/applications');
-				return;
-			}
-			status = { kind: 'error', text: body.error ?? `Erro ${res.status} ao aprovar.` };
+			// Apenas feedback: sem redirect e sem recarregar a lista (UX contínua).
+			toast(res.ok ? 'success' : 'error', res.ok
+				? `${job.title} aprovada e enviada para candidaturas.`
+				: body.error ?? `Erro ${res.status} ao aprovar.`);
 		} catch {
-			status = { kind: 'error', text: 'Falha de rede ao aprovar.' };
+			toast('error', 'Falha de rede ao aprovar.');
 		} finally {
 			actingId = null;
 		}
@@ -255,6 +354,7 @@
 			const body = await res.json().catch(() => ({}));
 			if (res.ok) {
 				status = { kind: 'success', text: 'Vaga descartada.' };
+				detailJob = null;
 				await loadJobs();
 			} else {
 				status = { kind: 'error', text: body.error ?? `Erro ${res.status} ao descartar.` };
@@ -266,619 +366,523 @@
 		}
 	}
 
-	function scoreClass(score: number): string {
-		if (score >= 75) return 'high';
-		if (score >= 50) return 'mid';
-		return 'low';
+	function openDetail(job: Job): void {
+		selectedJob = job;
+		if (viewport.isDesktop) detailJob = job;
+		else void goto(`/jobs/${job.id}`);
 	}
 
-	const statusLabels: Record<string, string> = {
-		new: 'nova',
-		approved: 'aprovada',
-		discarded: 'descartada'
-	};
+	function clearFilters(): void {
+		statusFilter = 'all';
+		sourceFilter = [];
+		searchTerm = '';
+		resetPage();
+	}
 
-	const sourceLabels: Record<string, string> = {
-		himalayas: 'Himalayas',
-		remotive: 'Remotive',
-		jobicy: 'Jobicy',
-		remoteok: 'Remote OK',
-		manual: 'Manual'
-	};
+	function onSort(key: string): void {
+		if (sortKey === key) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+		else {
+			sortKey = key;
+			sortDir = key === 'score' || key === 'created_at' ? 'desc' : 'asc';
+		}
+	}
+
+	function toggleSelect(id: number, checked: boolean): void {
+		selectedIds = checked ? [...selectedIds, id] : selectedIds.filter((item) => item !== id);
+	}
+
+	function selectAllVisible(checked: boolean): void {
+		const ids = pagedJobs.map((job) => job.id);
+		selectedIds = checked
+			? Array.from(new Set([...selectedIds, ...ids]))
+			: selectedIds.filter((id) => !ids.includes(id));
+	}
+
+	function selectAllFiltered(): void {
+		selectedIds = sortedJobs.map((job) => job.id);
+	}
+
+	function clearSelection(): void {
+		selectedIds = [];
+	}
+
+	async function runBatch(action: 'score' | 'approve' | 'discard'): Promise<void> {
+		const targets = jobs.filter((job) => selectedIds.includes(job.id));
+		if (targets.length === 0) return;
+		const verb = { score: 'Score calculado', approve: 'Aprovada', discard: 'Descartada' }[action];
+		let ok = 0;
+		for (const job of targets) {
+			try {
+				const res = await fetch(`/api/jobs/${job.id}/${action}`, { method: 'POST' });
+				if (res.ok) ok++;
+			} catch {
+				// segue com os demais
+			}
+		}
+		const failures = targets.length - ok;
+		toast(failures > 0 ? 'error' : 'success',
+			`${verb}: ${ok} de ${targets.length} vaga(s).${failures > 0 ? ` ${failures} falha(s).` : ''}`);
+		if (action !== 'approve') {
+			if (action === 'discard') clearSelection();
+			await loadJobs();
+		}
+	}
 </script>
 
 <svelte:head>
 	<title>Vagas · openJob</title>
 </svelte:head>
 
-<h1 class="page-title">Vagas</h1>
-<p class="page-subtitle">Cole a vaga que você está mirando, calcule o fit e aprove para o pipeline.</p>
+
+{#snippet renderCell(job: Job, column: DataColumn<Job>)}
+	{#if column.key === 'title'}
+		<strong>{job.title}</strong>
+	{:else if column.key === 'score'}
+		<Badge tone={job.score_fit === null ? 'neutral' : scoreTone(job.score_fit)}>
+			{job.score_fit === null ? 'sem score' : `${job.score_fit}/100`}
+		</Badge>
+	{:else if column.key === 'status'}
+		<Badge tone={job.status === 'approved' ? 'success' : job.status === 'discarded' ? 'error' : 'primary'}>
+			{STATUS_LABELS[job.status] ?? job.status}
+		</Badge>
+	{:else}
+		{column.value?.(job) ?? ''}
+	{/if}
+{/snippet}
+
+{#snippet newJobForm()}
+	<form id="new-job-form" onsubmit={(e) => { e.preventDefault(); save(); }}>
+		<Field label="URL da vaga" for="url">
+			<div class="url-row">
+				<Input
+					id="url"
+					type="url"
+					placeholder="https://jobs.example.com/vaga"
+					bind:value={url}
+					onpaste={onUrlPaste}
+					spellcheck="false"
+				/>
+				<Button
+					type="button"
+					variant="secondary"
+					loading={fetching}
+					disabled={!/^https?:\/\//.test(url.trim())}
+					onclick={() => fetchDraft(url)}
+				>
+					Preencher
+				</Button>
+			</div>
+		</Field>
+		<Field label="Título" for="title">
+			<Input id="title" bind:value={title} placeholder="Senior Go Developer" />
+		</Field>
+		<Field label="Empresa" for="company">
+			<Input id="company" bind:value={company} placeholder="Acme Corp" />
+		</Field>
+		<Field label="Descrição da vaga (JD)" for="description">
+			<Textarea id="description" rows={6} bind:value={description} placeholder="Cole aqui a descrição completa da vaga — HTML é limpo automaticamente." />
+		</Field>
+	</form>
+{/snippet}
+
+{#snippet filterIcons()}
+	{#if hasActiveFilters}
+		<IconButton icon="x" label="Limpar filtros" variant="ghost" onclick={clearFilters} />
+	{/if}
+	<IconButton icon="check-double" label="Marcar todas as vagas" variant="ghost" onclick={selectAllFiltered} />
+	<IconLinkButton href="/settings/sources" icon="settings" label="Configurar fontes de vagas" />
+{/snippet}
+
+{#snippet filterFields(prefix: string)}
+	<Field label="Status" for="{prefix}-status">
+		<Select id="{prefix}-status" value={statusFilter} onchange={(e) => { statusFilter = e.currentTarget.value; resetPage(); }} options={statusOptions} />
+	</Field>
+	<Field label="Fonte (múltipla)">
+		<MultiSelect label="Filtrar por fonte" options={sourceOptions} bind:value={sourceFilter} allLabel="Todas as fontes" onchange={resetPage} />
+	</Field>
+	<Field label="Buscar nas vagas" for="{prefix}-search">
+		<Input id="{prefix}-search" type="search" bind:value={searchTerm} oninput={resetPage} placeholder="Título, empresa ou descrição" />
+	</Field>
+{/snippet}
+
+<PageHeader
+	title="Vagas"
+	subtitle="O openJob consulta APIs públicas de vagas e aplica suas palavras-chave como filtro inicial."
+	breadcrumb={[{ label: 'Início', href: '/' }, { label: 'Vagas' }]}
+>
+	{#snippet actions()}
+		<Button onclick={triggerDiscovery} loading={discovering}>
+			<Icon name="sparkles" size={20} />
+			{discovering ? 'Buscando…' : 'Buscar agora'}
+		</Button>
+		<Button variant="secondary" onclick={() => (newJobOpen = true)}>
+			<Icon name="plus" size={20} />
+			Nova Vaga
+		</Button>
+	{/snippet}
+</PageHeader>
 
 {#if status}
-	<div class="status {status.kind}" role="status">{status.text}</div>
+	<Alert severity={status.kind} title={status.kind === 'error' ? 'Atenção' : 'Sucesso'}>{status.text}</Alert>
 {/if}
 
 {#if !llmConfigured}
-	<div class="status warn" role="status">
-		Provedor de IA não configurado — o botão Score precisa da sua chave.
-		<a href="/settings">Configurar</a>
-	</div>
+	<Alert severity="warning" title="Provedor de IA não configurado">
+		O botão Score precisa da sua chave. <a href="/settings">Configurar</a>
+	</Alert>
 {/if}
 
-<section class="card discovery-card" aria-label="Descoberta Automática de Vagas">
-	<div class="discovery-content">
-		<div class="discovery-text">
-			<div class="discovery-title-row">
-				<h2>Descoberta Automática de Vagas</h2>
-				<span class="badge-free">APIs Gratuitas</span>
-			</div>
-			<p class="hint">
-				Busca remota em fontes oficiais com APIs públicas gratuitas (Himalayas, Remotive, Jobicy, Remote OK) com filtros prévios.
-			</p>
-			<div class="discovery-meta">
-				<span class="meta-item">
-					<strong>Palavras-chave:</strong>
-					{#if discoveryKeywords.length > 0}
-						{discoveryKeywords.join(', ')}
-					{:else}
-						<em>nenhuma configurada</em>
-					{/if}
-				</span>
-				<span class="meta-item">
-					<strong>Filtro por currículo:</strong>
-					{resumeFilterActive ? 'Ativo' : 'Desativado'}
-				</span>
-				<a href="/settings/discovery" class="settings-link">⚙ Ajustar busca & filtros</a>
-			</div>
+<Card class="keywords-strip">
+	<div class="keywords-strip-inner">
+		<span class="keywords-icon"><Icon name="sliders" size={20} /></span>
+		<div class="keywords-copy">
+			<strong>Palavras-chave configuradas</strong>
+			<span class="hint">
+				{discoveryKeywords.length > 0
+					? discoveryKeywords.join(' · ')
+					: 'nenhuma — todas as vagas retornadas serão avaliadas'}
+			</span>
 		</div>
+		<IconLinkButton href="/settings/discovery" icon="external" label="Configurar busca e filtros" />
+	</div>
+</Card>
 
-		<div class="discovery-actions">
-			<button
-				type="button"
-				class="primary btn-discover"
-				disabled={discovering}
-				onclick={triggerDiscovery}
-			>
-				{discovering ? 'Buscando vagas…' : '⚡ Buscar Vagas Agora'}
-			</button>
+
+<section aria-label="Vagas cadastradas" class="jobs-section">
+	<div class="list-head">
+		<p class="hint count-mobile">{sortedJobs.length} vagas</p>
+		<div class="list-actions">
+			<Button variant="ghost" onclick={() => (filtersOpen = true)} class="filters-trigger">
+				<Icon name="sliders" size={20} /> Filtros
+			</Button>
+			<div class="mobile-filter-actions">{@render filterIcons()}</div>
 		</div>
 	</div>
 
-	{#if lastRunStats}
-		<div class="discovery-stats">
-			<span>Analisadas: <strong>{lastRunStats.fetched}</strong></span>
-			<span>Após palavras-chave: <strong>{lastRunStats.fetched - lastRunStats.filtered_keywords}</strong></span>
-			<span>Após currículo: <strong>{lastRunStats.fetched - lastRunStats.filtered_keywords - lastRunStats.filtered_resume}</strong></span>
-			<span>Novas adicionadas: <strong class="highlight-green">{lastRunStats.new_jobs}</strong></span>
-			<span>Com score IA: <strong>{lastRunStats.scored}</strong></span>
-		</div>
+	<div class="filters-inline">
+		{@render filterFields('inline')}
+		<div class="inline-filter-actions">{@render filterIcons()}</div>
+	</div>
+
+	{#if loading}
+		<Card><p class="hint">Carregando vagas…</p></Card>
+	{:else if jobs.length === 0}
+		<Card>
+			<EmptyState
+				title="Nenhuma vaga ainda"
+				description="Use o botão “Nova Vaga” para cadastrar a primeira ou a descoberta automática."
+			>
+				<Button variant="secondary" size="sm" onclick={() => (newJobOpen = true)}>Nova Vaga</Button>
+			</EmptyState>
+		</Card>
+	{:else if filteredJobs.length === 0}
+		<Card>
+			<EmptyState title="Nenhuma vaga com esses filtros" description="Ajuste os filtros para ver mais resultados.">
+				<Button variant="secondary" size="sm" onclick={clearFilters}>Limpar filtros</Button>
+			</EmptyState>
+		</Card>
+	{:else}
+		<DataView
+			columns={columns}
+			rows={visibleJobs}
+			getKey={(job) => job.id}
+			caption="Vagas cadastradas"
+			onrowclick={openDetail}
+			render={renderCell}
+			selectable
+			{selectedIds}
+			onselect={(id, checked) => toggleSelect(Number(id), checked)}
+			onselectall={selectAllVisible}
+			sort={{ key: sortKey, dir: sortDir }}
+			onsort={onSort}
+			scrollable
+			onreachEnd={loadMoreJobs}
+			{loadingMore}
+		/>
 	{/if}
 </section>
 
-<section class="card" aria-label="Nova vaga">
-	<header class="card-head">
-		<h2>Nova vaga</h2>
-	</header>
-	<form onsubmit={(e) => { e.preventDefault(); save(); }}>
-		<label for="url">URL da vaga</label>
-		<div class="url-row">
-			<input
-				id="url"
-				type="url"
-				placeholder="https://jobs.example.com/vaga"
-				bind:value={url}
-				onpaste={onUrlPaste}
-				spellcheck="false"
-			/>
-			<button
-				type="button"
-				class="secondary fill"
-				disabled={fetching || !/^https?:\/\//.test(url.trim())}
-				onclick={() => fetchDraft(url)}
-			>
-				{fetching ? 'Buscando…' : 'Preencher'}
-			</button>
-		</div>
-		<p class="hint">Cole o link da vaga — título, empresa e descrição são preenchidos automaticamente.</p>
+{#snippet barLeading(size: 'sm' | 'md')}
+	<IconButton
+		icon="check"
+		label="Aprovar vagas selecionadas"
+		variant="primary"
+		size={size}
+		disabled={selectedIds.length === 0}
+		onclick={() => runBatch('approve')}
+	/>
+	<IconButton
+		icon="sparkles"
+		label="Calcular score das vagas selecionadas"
+		variant="secondary"
+		size={size}
+		disabled={selectedIds.length === 0}
+		onclick={() => runBatch('score')}
+	/>
+{/snippet}
 
-		<label for="title">Título</label>
-		<input id="title" type="text" placeholder="Senior Go Developer" bind:value={title} />
+{#snippet barActions(size: 'sm' | 'md')}
+	<IconButton
+		icon="trash"
+		label="Descartar vagas selecionadas"
+		variant="danger"
+		size={size}
+		disabled={selectedIds.length === 0}
+		onclick={() => runBatch('discard')}
+	/>
+{/snippet}
 
-		<label for="company">Empresa</label>
-		<input id="company" type="text" placeholder="Acme Corp" bind:value={company} />
+{#snippet barCount()}
+	<span class="hint">{rangeLabel}</span>
+{/snippet}
 
-		<label for="description">Descrição da vaga (JD)</label>
-		<textarea
-			id="description"
-			rows="8"
-			placeholder="Cole aqui a descrição completa da vaga — HTML é limpo automaticamente."
-			bind:value={description}
-		></textarea>
-
-		<div class="actions">
-			<button type="submit" class="primary" disabled={saving || !canSave}>
-				{saving ? 'Salvando…' : 'Salvar vaga'}
-			</button>
-		</div>
-	</form>
-</section>
-
-{#if loading}
-	<p class="empty">Carregando vagas…</p>
-{:else if jobs.length === 0}
-	<p class="empty">Nenhuma vaga ainda — cole a primeira acima.</p>
-{:else}
-	<div class="list">
-		{#each jobs as job (job.id)}
-			<article class="card job" class:discarded={job.status === 'discarded'}>
-				<header class="card-head">
-					<div class="job-title">
-						<h2>{job.title}</h2>
-						<div class="company-row">
-							<span class="muted">{job.company}</span>
-							{#if job.source}
-								<span class="source-tag">{sourceLabels[job.source] ?? job.source}</span>
-							{/if}
-						</div>
-					</div>
-					<div class="badges">
-						{#if job.score_fit !== null}
-							<span class="score {scoreClass(job.score_fit)}">{job.score_fit}</span>
-						{:else}
-							<span class="score none">sem score</span>
-						{/if}
-						<span class="pill st-{job.status}">{statusLabels[job.status] ?? job.status}</span>
-					</div>
-				</header>
-
-				{#if job.url}
-					<div class="link-row">
-						<a class="link" href={job.url} target="_blank" rel="noopener noreferrer">{job.url}</a>
-						{#if job.source === 'remotive' || job.source === 'remoteok' || job.source === 'jobicy'}
-							<span class="attrib-badge">via {sourceLabels[job.source] ?? job.source}</span>
-						{/if}
-					</div>
-				{/if}
-
-				{#if (job.matched_keywords && job.matched_keywords.length > 0) || (job.matched_resume_terms && job.matched_resume_terms.length > 0)}
-					<div class="matched-box">
-						{#if job.matched_keywords && job.matched_keywords.length > 0}
-							<div class="matched-group">
-								<span class="matched-label">Palavras-chave:</span>
-								{#each job.matched_keywords as kw}
-									<span class="chip-kw">{kw}</span>
-								{/each}
-							</div>
-						{/if}
-						{#if job.matched_resume_terms && job.matched_resume_terms.length > 0}
-							<div class="matched-group">
-								<span class="matched-label">Aderência ao currículo:</span>
-								{#each job.matched_resume_terms as rt}
-									<span class="chip-resume">{rt}</span>
-								{/each}
-							</div>
-						{/if}
-					</div>
-				{/if}
-
-				{#if job.score_reason}
-					<details class="reason">
-						<summary>Justificativa do score</summary>
-						<p>{job.score_reason}</p>
-					</details>
-				{/if}
-
-				<div class="actions">
-					<button
-						class="secondary"
-						disabled={scoringId === job.id || actingId === job.id || job.status === 'discarded'}
-						onclick={() => score(job)}
-					>
-						{scoringId === job.id ? 'Calculando…' : 'Score'}
-					</button>
-					<button
-						class="primary"
-						disabled={actingId === job.id || scoringId === job.id || job.status === 'approved' || job.status === 'discarded'}
-						onclick={() => approve(job)}
-					>
-						{actingId === job.id ? 'Aprovando…' : 'Aprovar'}
-					</button>
-					<button
-						class="danger"
-						disabled={actingId === job.id || scoringId === job.id || job.status === 'discarded'}
-						onclick={() => discard(job)}
-					>
-						{actingId === job.id ? 'Descartando…' : 'Descartar'}
-					</button>
-				</div>
-			</article>
-		{/each}
+{#if viewport.isDesktop}
+	<PageFooter>
+		<Pagination
+			page={currentPage}
+			totalPages={totalPages}
+			onchange={goToPage}
+			label="Paginação e ações de vagas"
+			leading={barLeading}
+			actions={barActions}
+			count={barCount}
+		/>
+	</PageFooter>
+{:else if selectedIds.length > 0}
+	<!-- No mobile as ações em lote flutuam sobre a lista quando há seleção. -->
+	<div class="mobile-actions" role="toolbar" aria-label="Ações em lote">
+		<span class="selection-count">{selectedIds.length} selecionada(s)</span>
+		<IconButton icon="check" label="Aprovar vagas selecionadas" variant="primary" onclick={() => runBatch('approve')} />
+		<IconButton icon="sparkles" label="Calcular score das vagas selecionadas" variant="secondary" onclick={() => runBatch('score')} />
+		<IconButton icon="trash" label="Descartar vagas selecionadas" variant="danger" onclick={() => runBatch('discard')} />
 	</div>
 {/if}
 
+<Dialog open={newJobOpen} onclose={() => (newJobOpen = false)} title="Nova Vaga" description="Cole o link — os dados são preenchidos para revisão antes de salvar.">
+	{@render newJobForm()}
+	{#snippet footer()}
+		<Button variant="ghost" onclick={() => (newJobOpen = false)}>Cancelar</Button>
+		<Button type="submit" form="new-job-form" loading={saving} disabled={!canSave}>Salvar vaga</Button>
+	{/snippet}
+</Dialog>
+
+<Dialog open={filtersOpen} onclose={() => (filtersOpen = false)} title="Filtrar vagas">
+	<div class="filter-sheet">
+		{@render filterFields('sheet')}
+	</div>
+	{#snippet footer()}
+		<Button variant="ghost" onclick={clearFilters}>Limpar</Button>
+		<Button onclick={() => (filtersOpen = false)}>Aplicar</Button>
+	{/snippet}
+</Dialog>
+
+{#if detailJob}
+	<Drawer
+		title="Detalhe da vaga"
+		description={detailJob.company}
+		onclose={() => (detailJob = null)}
+	>
+		<JobDetail job={detailJob} />
+		{#snippet footer()}
+			<a class="full-link" href={`/jobs/${detailJob!.id}`}>Abrir página completa</a>
+		{/snippet}
+	</Drawer>
+{/if}
+
 <style>
-	.card {
-		background: var(--surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		padding: 1rem;
-		margin-bottom: 1rem;
-	}
-
-	.card-head {
+	/* Cartão bem curto com as palavras-chave da busca. */
+	.keywords-strip-inner {
 		display: flex;
-		align-items: flex-start;
-		justify-content: space-between;
-		gap: 0.75rem;
-		margin-bottom: 0.75rem;
+		align-items: center;
+		gap: var(--space-3);
 	}
 
-	.card-head h2 {
-		font-size: 1rem;
-		margin: 0;
+	.keywords-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 36px;
+		height: 36px;
+		flex-shrink: 0;
+		border-radius: var(--radius-md);
+		background: var(--color-info-soft);
+		color: var(--color-primary);
 	}
 
-	label {
-		display: block;
-		font-size: 0.85rem;
-		font-weight: 600;
-		margin: 0.75rem 0 0.25rem;
+	.keywords-copy {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		flex: 1;
+		min-width: 0;
 	}
 
-	input,
-	textarea {
-		width: 100%;
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		padding: 0.6rem 0.75rem;
-		font-size: 1rem;
-		background: var(--bg);
-		color: var(--text);
-		font-family: inherit;
+	.keywords-copy strong {
+		font-size: var(--text-body);
 	}
 
-	textarea {
-		resize: vertical;
-		line-height: 1.4;
-	}
-
-	input:focus,
-	textarea:focus {
-		outline: 2px solid var(--accent);
-		outline-offset: 1px;
-		border-color: var(--accent);
+	form {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
 	}
 
 	.url-row {
 		display: flex;
-		gap: 0.5rem;
+		gap: var(--space-3);
 	}
 
-	.url-row input {
+	.url-row :global(.input) {
 		flex: 1;
 		min-width: 0;
 	}
 
-	.url-row .fill {
-		flex-shrink: 0;
-		padding: 0 0.9rem;
-	}
-
-	.hint {
-		color: var(--text-muted);
-		font-size: 0.8rem;
-		margin: 0.3rem 0 0;
-	}
-
-	.actions {
+	.jobs-section {
 		display: flex;
-		gap: 0.5rem;
-		margin-top: 1rem;
+		flex: 1 1 auto;
+		flex-direction: column;
+		min-height: 0;
+		margin-top: var(--space-6);
 	}
 
-	.primary,
-	.secondary,
-	.danger {
-		flex: 1;
-		border: 0;
-		border-radius: var(--radius);
-		padding: 0.6rem 0.5rem;
-		font-size: 0.9rem;
-		font-weight: 600;
-		cursor: pointer;
+	@media (max-width: 767px) {
+		.jobs-section {
+			margin-top: var(--space-4);
+		}
+
+		/* Resumo de palavras-chave em uma linha só no phone. */
+		:global(.card.keywords-strip) {
+			padding: var(--space-3);
+		}
+
+		.keywords-strip-inner {
+			gap: var(--space-2);
+		}
+
+		.keywords-copy strong {
+			display: none;
+		}
+
+		.keywords-icon {
+			width: 32px;
+			height: 32px;
+		}
+	}
+
+	.jobs-section :global(.table-wrap.scrollable),
+	.jobs-section :global(.card-list.scrollable) {
+		flex: 1 1 auto;
+		/* Garante área útil mesmo em telas baixas; o overflow é da lista. */
+		min-height: 160px;
+	}
+
+	.count-mobile {
+		font-weight: var(--weight-medium);
+	}
+
+	.mobile-actions {
+		position: fixed;
+		left: 50%;
+		bottom: calc(var(--bottom-nav-height) + var(--space-4));
+		z-index: 45;
+		transform: translateX(-50%);
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+		padding: var(--space-2);
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-md);
+	}
+
+	.selection-count {
+		padding: 0 var(--space-2);
+		font-size: var(--text-caption);
+		color: var(--color-text-muted);
 		white-space: nowrap;
 	}
 
-	.primary {
-		background: var(--accent);
-		color: #fff;
-	}
-
-	.secondary {
-		background: var(--accent-soft);
-		color: var(--accent);
-	}
-
-	.danger {
-		background: #fef2f2;
-		color: #b91c1c;
-	}
-
-	.primary:disabled,
-	.secondary:disabled,
-	.danger:disabled {
-		opacity: 0.5;
-		cursor: default;
-	}
-
-	.status {
-		border-radius: var(--radius);
-		padding: 0.6rem 0.8rem;
-		font-size: 0.9rem;
-		margin-bottom: 0.75rem;
-	}
-
-	.status.success {
-		background: #ecfdf5;
-		color: #047857;
-	}
-
-	.status.error {
-		background: #fef2f2;
-		color: #b91c1c;
-	}
-
-	.status.warn {
-		background: #fffbeb;
-		color: #b45309;
-	}
-
-	.status a {
-		color: inherit;
-		font-weight: 600;
-	}
-
-	.badges {
-		display: flex;
-		align-items: center;
-		gap: 0.4rem;
+	.list-head {
 		flex-shrink: 0;
-	}
-
-	.score {
-		font-size: 0.8rem;
-		font-weight: 700;
-		border-radius: 999px;
-		padding: 0.2rem 0.6rem;
-	}
-
-	.score.high {
-		background: #ecfdf5;
-		color: #047857;
-	}
-
-	.score.mid {
-		background: #fffbeb;
-		color: #b45309;
-	}
-
-	.score.low {
-		background: #fef2f2;
-		color: #b91c1c;
-	}
-
-	.score.none {
-		background: var(--bg);
-		color: var(--text-muted);
-		font-weight: 600;
-	}
-
-	.pill {
-		font-size: 0.72rem;
-		font-weight: 600;
-		border-radius: 999px;
-		padding: 0.15rem 0.55rem;
-		background: var(--bg);
-		color: var(--text-muted);
-	}
-
-	.pill.st-approved {
-		background: var(--accent-soft);
-		color: var(--accent);
-	}
-
-	.job.discarded {
-		opacity: 0.55;
-	}
-
-	.job-title {
-		min-width: 0;
-	}
-
-	.muted {
-		color: var(--text-muted);
-		font-size: 0.85rem;
-		margin: 0.1rem 0 0;
-	}
-
-	.link {
-		display: block;
-		color: var(--accent);
-		font-size: 0.82rem;
-		margin-bottom: 0.4rem;
-		overflow-wrap: anywhere;
-	}
-
-	.reason {
-		margin-bottom: 0.4rem;
-		font-size: 0.88rem;
-	}
-
-	.reason summary {
-		cursor: pointer;
-		color: var(--accent);
-		font-weight: 600;
-	}
-
-	.reason p {
-		margin: 0.5rem 0 0;
-		color: var(--text);
-	}
-
-	.empty {
-		color: var(--text-muted);
-		text-align: center;
-		padding: 1.5rem 0;
-	}
-
-	/* Discovery Banner Styles */
-	.discovery-card {
-		background: linear-gradient(to right bottom, var(--surface), var(--surface-soft, #f8fafc));
-		border-left: 4px solid var(--primary, #2563eb);
-	}
-
-	.discovery-content {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 1rem;
+		gap: var(--space-3);
+		margin-bottom: var(--space-4);
+	}
+
+	.list-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		flex-shrink: 0;
+	}
+
+	.mobile-filter-actions,
+	.inline-filter-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		flex-shrink: 0;
+	}
+
+	.inline-filter-actions {
+		margin-left: auto;
+		align-self: end;
+	}
+
+	.filters-inline {
+		flex-shrink: 0;
+		display: none;
+		gap: var(--space-3);
+		align-items: end;
+		margin-bottom: var(--space-4);
 		flex-wrap: wrap;
 	}
 
-	.discovery-text {
+	.filters-inline > :global(.field) {
+		min-width: 10rem;
 		flex: 1;
-		min-width: 280px;
 	}
 
-	.discovery-title-row {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		margin-bottom: 0.25rem;
-	}
-
-	.discovery-title-row h2 {
-		margin: 0;
-		font-size: 1.05rem;
-	}
-
-	.badge-free {
-		font-size: 0.65rem;
-		font-weight: 700;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		background: #ecfdf5;
-		color: #047857;
-		padding: 0.15rem 0.45rem;
-		border-radius: 999px;
-	}
-
-	.discovery-meta {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 0.75rem;
-		font-size: 0.8rem;
-		color: var(--text-muted);
-		margin-top: 0.5rem;
-	}
-
-	.settings-link {
-		color: var(--primary, #2563eb);
-		text-decoration: underline;
-		font-weight: 500;
-	}
-
-	.btn-discover {
-		font-weight: 600;
-		white-space: nowrap;
-		padding: 0.6rem 1rem;
-	}
-
-	.discovery-stats {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 1rem;
-		margin-top: 1rem;
-		padding-top: 0.75rem;
-		border-top: 1px dashed var(--border);
-		font-size: 0.8rem;
-		color: var(--text-muted);
-	}
-
-	.highlight-green {
-		color: #047857;
-		font-size: 0.95rem;
-	}
-
-	.company-row {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		margin-top: 0.1rem;
-	}
-
-	.source-tag {
-		font-size: 0.7rem;
-		font-weight: 600;
-		background: var(--surface-soft, #f1f5f9);
-		color: var(--text-muted);
-		padding: 0.1rem 0.4rem;
-		border-radius: 4px;
-	}
-
-	.link-row {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		margin-bottom: 0.4rem;
-		flex-wrap: wrap;
-	}
-
-	.attrib-badge {
-		font-size: 0.65rem;
-		background: #eff6ff;
-		color: #1d4ed8;
-		padding: 0.1rem 0.35rem;
-		border-radius: 4px;
-	}
-
-	.matched-box {
-		background: var(--surface-soft, #f8fafc);
-		border-radius: 6px;
-		padding: 0.5rem;
-		margin-bottom: 0.6rem;
+	.filter-sheet {
 		display: flex;
 		flex-direction: column;
-		gap: 0.35rem;
+		gap: var(--space-3);
 	}
 
-	.matched-group {
-		display: flex;
-		flex-wrap: wrap;
+	/* Ações ocupam a largura toda no card, mantendo os botões em uma linha. */
+	:global(.record .field-actions) {
+		grid-column: 1 / -1;
+		grid-template-columns: 1fr;
+		gap: var(--space-2);
+	}
+
+	.full-link {
+		display: inline-flex;
 		align-items: center;
-		gap: 0.35rem;
+		min-height: var(--touch-target);
+		color: var(--color-primary);
+		font-weight: var(--weight-semibold);
+		font-size: var(--text-caption);
 	}
 
-	.matched-label {
-		font-size: 0.72rem;
-		font-weight: 600;
-		color: var(--text-muted);
-	}
+	@media (min-width: 1024px) {
+		.count-mobile {
+			display: none;
+		}
 
-	.chip-kw {
-		font-size: 0.7rem;
-		background: #dbeafe;
-		color: #1e40af;
-		padding: 0.05rem 0.35rem;
-		border-radius: 3px;
-	}
+		.filters-inline {
+			display: flex;
+		}
 
-	.chip-resume {
-		font-size: 0.7rem;
-		background: #dcfce7;
-		color: #166534;
-		padding: 0.05rem 0.35rem;
-		border-radius: 3px;
+		:global(.btn.filters-trigger) {
+			display: none;
+		}
+
+		.mobile-filter-actions {
+			display: none;
+		}
 	}
 </style>

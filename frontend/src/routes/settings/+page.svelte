@@ -1,13 +1,20 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import SettingsNav from '#lib/components/SettingsNav.svelte';
+	import PageHeader from '#lib/ui/PageHeader.svelte';
+	import Card from '#lib/ui/Card.svelte';
+	import Field from '#lib/ui/Field.svelte';
+	import Input from '#lib/ui/Input.svelte';
+	import Button from '#lib/ui/Button.svelte';
+	import IconButton from '#lib/ui/IconButton.svelte';
+	import Alert from '#lib/ui/Alert.svelte';
+	import Badge from '#lib/ui/Badge.svelte';
 
 	interface LLMConfig {
 		configured: boolean;
 		base_url: string;
 		model: string;
 	}
-
 	interface PingResult {
 		ok: boolean;
 		message?: string;
@@ -53,10 +60,7 @@
 			if (res.status === 204) {
 				configured = true;
 				apiKey = '';
-				status = {
-					kind: 'success',
-					text: 'Chave salva com sucesso — armazenada cifrada no seu banco local.'
-				};
+				status = { kind: 'success', text: 'Chave salva com sucesso — armazenada cifrada no seu banco local.' };
 			} else {
 				const body = await res.json().catch(() => ({}));
 				status = { kind: 'error', text: body.error ?? `Erro ${res.status} ao salvar.` };
@@ -74,11 +78,9 @@
 		try {
 			const res = await fetch('/api/settings/llm-ping', { method: 'POST' });
 			const result: PingResult = await res.json();
-			if (result.ok) {
-				status = { kind: 'success', text: result.message ?? 'Conexão estabelecida.' };
-			} else {
-				status = { kind: 'error', text: result.error ?? 'Falha na conexão.' };
-			}
+			status = result.ok
+				? { kind: 'success', text: result.message ?? 'Conexão estabelecida.' }
+				: { kind: 'error', text: result.error ?? 'Falha na conexão.' };
 		} catch {
 			status = { kind: 'error', text: 'Falha de rede ao testar a conexão.' };
 		} finally {
@@ -91,212 +93,74 @@
 	<title>Configurações · openJob</title>
 </svelte:head>
 
-<h1 class="page-title">Configurações</h1>
-<p class="page-subtitle">
-	Provedor de IA (BYOK) — sua chave fica no seu computador, cifrada, e nunca volta para o navegador.
-</p>
+<PageHeader
+	title="Configurações"
+	subtitle="Chaves e preferências — sua chave fica no seu computador, cifrada, e nunca volta para o navegador."
+	breadcrumb={[{ label: 'Início', href: '/' }, { label: 'Configurações' }]}
+/>
 
 <SettingsNav active="llm" />
 
 {#if status}
-	<div class="status {status.kind}" role="status">{status.text}</div>
+	<Alert severity={status.kind}>{status.text}</Alert>
 {/if}
 
-<section class="card" aria-label="Provedor de IA">
-	<header class="card-head">
-		<h2>Provedor de IA</h2>
-		<span class="pill {configured ? 'on' : 'off'}">
+<Card title="Provedor de IA (BYOK)" subtitle="Compatível com OpenAI, Groq, Ollama, Together e Fireworks.">
+	{#snippet actions()}
+		<Badge tone={configured ? 'success' : 'warning'}>
 			{configured ? 'configurado' : 'não configurado'}
-		</span>
-	</header>
-
+		</Badge>
+	{/snippet}
 	<form onsubmit={(e) => { e.preventDefault(); save(); }}>
-		<label for="base_url">Base URL</label>
-		<input
-			id="base_url"
-			type="url"
-			placeholder="https://api.openai.com/v1"
-			bind:value={baseUrl}
-			autocomplete="off"
-			spellcheck="false"
-		/>
-		<p class="hint">Compatível com OpenAI, Groq, Ollama, Together, Fireworks…</p>
-
-		<label for="model">Modelo</label>
-		<input
-			id="model"
-			type="text"
-			placeholder="gpt-4o-mini"
-			bind:value={model}
-			autocomplete="off"
-			spellcheck="false"
-		/>
-
-		<label for="api_key">API key</label>
-		<div class="key-row">
-			<input
-				id="api_key"
-				type={showKey ? 'text' : 'password'}
-				placeholder={configured ? '•••••••• (salva — digite para trocar)' : 'sk-…'}
-				bind:value={apiKey}
-				autocomplete="off"
-				spellcheck="false"
-			/>
-			<button
-				type="button"
-				class="ghost"
-				aria-label={showKey ? 'Ocultar chave' : 'Mostrar chave'}
-				onclick={() => (showKey = !showKey)}
-			>
-				{showKey ? '🙈' : '👁'}
-			</button>
-		</div>
-		<p class="hint">
-			A chave é cifrada (AES-GCM) antes de ir para o SQLite e não pode ser recuperada pela UI.
-		</p>
-
-		<div class="actions">
-			<button type="submit" class="primary" disabled={saving}>
-				{saving ? 'Salvando…' : 'Salvar'}
-			</button>
-			<button type="button" class="secondary" disabled={testing} onclick={testConnection}>
-				{testing ? 'Testando…' : 'Testar conexão'}
-			</button>
+		<Field label="Base URL" for="base_url">
+			<Input id="base_url" type="url" bind:value={baseUrl} placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false" />
+		</Field>
+		<Field label="Modelo" for="model">
+			<Input id="model" bind:value={model} placeholder="gpt-4o-mini" autocomplete="off" spellcheck="false" />
+		</Field>
+		<Field label="API key" for="api_key" hint="A chave é cifrada (AES-GCM) antes de ir para o SQLite e não pode ser recuperada pela UI.">
+			<div class="key-row">
+				<Input
+					id="api_key"
+					type={showKey ? 'text' : 'password'}
+					placeholder={configured ? '•••••••• (salva — digite para trocar)' : 'sk-…'}
+					bind:value={apiKey}
+					autocomplete="off"
+					spellcheck="false"
+				/>
+				<IconButton
+					icon={showKey ? 'eye-off' : 'eye'}
+					label={showKey ? 'Ocultar chave' : 'Revelar chave'}
+					variant="ghost"
+					onclick={() => (showKey = !showKey)}
+				/>
+			</div>
+		</Field>
+		<div class="form-actions">
+			<Button type="submit" loading={saving}>Salvar</Button>
+			<Button type="button" variant="secondary" loading={testing} onclick={testConnection}>Testar conexão</Button>
 		</div>
 	</form>
-</section>
+</Card>
 
 <style>
-	.card {
-		background: var(--surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		padding: 1rem;
-	}
-
-	.card-head {
+	form {
 		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		margin-bottom: 0.75rem;
-	}
-
-	.card-head h2 {
-		font-size: 1rem;
-		margin: 0;
-	}
-
-	.pill {
-		font-size: 0.75rem;
-		font-weight: 600;
-		border-radius: 999px;
-		padding: 0.125rem 0.625rem;
-	}
-
-	.pill.on {
-		background: #ecfdf5;
-		color: #047857;
-	}
-
-	.pill.off {
-		background: var(--accent-soft);
-		color: var(--accent);
-	}
-
-	label {
-		display: block;
-		font-size: 0.85rem;
-		font-weight: 600;
-		margin: 0.75rem 0 0.25rem;
-	}
-
-	input {
-		width: 100%;
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		padding: 0.6rem 0.75rem;
-		font-size: 1rem;
-		background: var(--bg);
-		color: var(--text);
-	}
-
-	input:focus {
-		outline: 2px solid var(--accent);
-		outline-offset: 1px;
-		border-color: var(--accent);
+		flex-direction: column;
+		gap: var(--space-4);
 	}
 
 	.key-row {
 		display: flex;
-		gap: 0.5rem;
+		gap: var(--space-2);
 	}
 
-	.key-row input {
+	.key-row :global(.input) {
 		flex: 1;
+		min-width: 0;
 	}
 
-	.ghost {
-		border: 1px solid var(--border);
-		background: var(--surface);
-		border-radius: var(--radius);
-		padding: 0 0.75rem;
-		font-size: 1rem;
-		cursor: pointer;
-	}
-
-	.hint {
-		color: var(--text-muted);
-		font-size: 0.8rem;
-		margin: 0.25rem 0 0;
-	}
-
-	.actions {
-		display: flex;
-		gap: 0.75rem;
-		margin-top: 1.25rem;
-	}
-
-	.primary,
-	.secondary {
-		flex: 1;
-		border: 0;
-		border-radius: var(--radius);
-		padding: 0.7rem 1rem;
-		font-size: 0.95rem;
-		font-weight: 600;
-		cursor: pointer;
-	}
-
-	.primary {
-		background: var(--accent);
-		color: #fff;
-	}
-
-	.primary:disabled,
-	.secondary:disabled {
-		opacity: 0.6;
-		cursor: default;
-	}
-
-	.secondary {
-		background: var(--accent-soft);
-		color: var(--accent);
-	}
-
-	.status {
-		border-radius: var(--radius);
-		padding: 0.6rem 0.8rem;
-		font-size: 0.9rem;
-		margin-bottom: 0.75rem;
-	}
-
-	.status.success {
-		background: #ecfdf5;
-		color: #047857;
-	}
-
-	.status.error {
-		background: #fef2f2;
-		color: #b91c1c;
+	.form-actions {
+		margin-top: var(--space-2);
 	}
 </style>

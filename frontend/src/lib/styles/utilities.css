@@ -1,0 +1,117 @@
+/**
+ * Utilitários compartilhados do design system (CP12).
+ * Regras: apenas tokens; sem valores literais de cor/espaçamento/tipografia.
+ */
+
+.stack {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+}
+
+.row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	flex-wrap: wrap;
+}
+
+.grid {
+	display: grid;
+	gap: var(--space-4);
+	grid-template-columns: 1fr;
+}
+
+@media (min-width: 768px) {
+	.grid-2 {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+
+@media (min-width: 1024px) {
+	.grid-2 {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.grid-3 {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+}
+
+.muted {
+	color: var(--color-text-muted);
+}
+
+.hint {
+	margin: 0;
+	color: var(--color-text-muted);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+}
+
+/* Link de ação com ícone (usado em tabelas/cards). */
+.link {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	color: var(--color-primary);
+	font-size: var(--text-caption);
+	text-decoration: none;
+	overflow-wrap: anywhere;
+}
+
+.link:hover {
+	text-decoration: underline;
+}
+
+/* Rodapé de formulários e blocos de ação alinhados à direita. */
+.form-actions {
+	display: flex;
+	gap: var(--space-2);
+	justify-content: flex-end;
+}
+
+/* Grupos de chips e metadados em cards. */
+.chips,
+.meta-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.truncate {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+.skip-link {
+	position: absolute;
+	left: var(--space-4);
+	top: -100px;
+	z-index: 200;
+	background: var(--color-surface);
+	color: var(--color-primary);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	padding: var(--space-2) var(--space-4);
+	text-decoration: none;
+}
+
+.skip-link:focus {
+	top: var(--space-2);
+}

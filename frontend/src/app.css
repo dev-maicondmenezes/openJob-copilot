@@ -1,16 +1,10 @@
-:root {
-	--bg: #f8fafc;
-	--surface: #ffffff;
-	--surface-strong: #0f172a;
-	--text: #0f172a;
-	--text-muted: #64748b;
-	--border: #e2e8f0;
-	--accent: #2563eb;
-	--accent-soft: #eff6ff;
-	--radius: 0.75rem;
-}
+@import './lib/styles/tokens.css';
+@import './lib/styles/utilities.css';
 
-* {
+/* ------------------------------------------------------------------ reset */
+*,
+*::before,
+*::after {
 	box-sizing: border-box;
 }
 
@@ -18,45 +12,153 @@ html,
 body {
 	margin: 0;
 	padding: 0;
+	min-height: 100%;
 }
 
 body {
-	font-family:
-		system-ui,
-		-apple-system,
-		'Segoe UI',
-		Roboto,
-		sans-serif;
-	background: var(--bg);
-	color: var(--text);
-	line-height: 1.5;
+	background: var(--color-surface-soft);
+	color: var(--color-text-primary);
+	font-family: var(--font-sans);
+	font-size: var(--text-body);
+	line-height: var(--leading-body);
 	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
 }
 
-/* Áreas seguras do iOS (notch / home indicator) — viewport-fit=cover no app.html */
+h1,
+h2,
+h3,
+h4,
+p {
+	margin-top: 0;
+}
+
+h1 {
+	font-size: var(--text-h1);
+	line-height: var(--leading-h1);
+	font-weight: var(--weight-bold);
+}
+
+h2 {
+	font-size: var(--text-h2);
+	line-height: var(--leading-h2);
+	font-weight: var(--weight-semibold);
+}
+
+h3 {
+	font-size: var(--text-h3);
+	line-height: var(--leading-h3);
+	font-weight: var(--weight-semibold);
+}
+
+a {
+	color: var(--color-primary);
+}
+
+button,
+input,
+select,
+textarea {
+	font: inherit;
+}
+
+img,
+svg {
+	max-width: 100%;
+}
+
+/* Foco visível explícito e consistente (WCAG 2.4.7). */
+:focus-visible {
+	outline: 2px solid var(--color-focus);
+	outline-offset: 2px;
+}
+
+::selection {
+	background: var(--color-info-soft);
+	color: var(--color-text-primary);
+}
+
+/* ------------------------------------------------------- shell / conteúdo */
+/* Shell preso ao viewport: header e footer sempre visíveis; quem rola é a lista. */
 .app {
+	display: flex;
+	flex-direction: column;
+	height: 100dvh;
 	min-height: 100dvh;
-	padding-top: calc(env(safe-area-inset-top) + 0.75rem);
+	overflow: hidden;
+	padding-top: env(safe-area-inset-top);
 	padding-left: env(safe-area-inset-left);
 	padding-right: env(safe-area-inset-right);
 }
 
+/*
+ * A página de conteúdo "flutua" sobre o fundo cinza do app: é um 3º elemento
+ * visualmente separado do header e da sidebar. Dialogs/modais são renderizados
+ * fora deste elemento (overlay-fixos), por isso não fazem parte do cartão.
+ */
 .content {
-	max-width: 40rem;
-	margin: 0 auto;
-	padding: 0 1rem 0 1rem;
-	/* Reserva espaço para o bottom nav fixo + home indicator */
-	padding-bottom: calc(4.75rem + env(safe-area-inset-bottom));
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	max-width: 100%;
+	margin: var(--space-3) var(--space-3)
+		calc(var(--bottom-nav-height) + var(--space-6) + env(safe-area-inset-bottom));
+	padding: var(--space-4);
+	background: var(--color-surface);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--shadow-sm);
 }
 
-.page-title {
-	font-size: 1.5rem;
-	font-weight: 700;
-	margin: 0.5rem 0 0.25rem;
+.content > * {
+	flex-shrink: 0;
 }
 
-.page-subtitle {
-	color: var(--text-muted);
-	font-size: 0.95rem;
-	margin: 0 0 1.25rem;
+@media (max-width: 1023px) {
+	.content {
+		width: calc(100% - var(--space-6));
+	}
+}
+
+@media (min-width: 768px) {
+	.content {
+		max-width: var(--content-max-tablet);
+		margin: var(--space-6) auto
+			calc(var(--bottom-nav-height) + var(--space-6) + env(safe-area-inset-bottom));
+		padding: var(--space-6);
+	}
+}
+
+@media (min-width: 1024px) {
+	.content {
+		/* Respiro de ~48px (token --space-12) no início e no fim da página. */
+		width: calc(100% - (var(--space-12) * 2));
+		max-width: calc(var(--content-max-desktop) - (var(--space-12) * 2));
+		margin: var(--space-12) auto;
+		padding: var(--space-8);
+		box-shadow: var(--shadow-md);
+	}
+}
+
+/* --------------------------------------------------------------- acessibilidade */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}
+
+/* Snapshots visuais: o Playwright marcaria o <body> com este atributo. */
+[data-test-animations='off'] *,
+[data-test-animations='off'] *::before,
+[data-test-animations='off'] *::after {
+	animation: none !important;
+	transition: none !important;
 }

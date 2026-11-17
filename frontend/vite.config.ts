@@ -3,6 +3,17 @@ import { withPwa } from '@vite-pwa/sveltekit';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+	// Página de referência /dev/ui: só existe quando OPENJOB_DEV_UI=1 no build/dev.
+	// (globalThis.process evita depender de @types/node neste projeto.)
+	define: {
+		'import.meta.env.OPENJOB_DEV_UI': JSON.stringify(
+			String(
+				(globalThis as any).process?.env?.OPENJOB_DEV_UI ??
+					(globalThis as any).process?.env?.VITE_OPENJOB_DEV_UI ??
+					''
+			)
+		)
+	},
 	// Dev server: HMR da SPA. O proxy /api evita CORS durante o desenvolvimento —
 	// em produção SPA e API são servidas na mesma origem pelo binário Go.
 	server: {

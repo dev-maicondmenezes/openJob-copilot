@@ -1,9 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import SettingsNav from '#lib/components/SettingsNav.svelte';
+	import PageHeader from '#lib/ui/PageHeader.svelte';
+	import Card from '#lib/ui/Card.svelte';
+	import Field from '#lib/ui/Field.svelte';
+	import Input from '#lib/ui/Input.svelte';
+	import Switch from '#lib/ui/Switch.svelte';
+	import Button from '#lib/ui/Button.svelte';
+	import Alert from '#lib/ui/Alert.svelte';
 
-	// CP10 §4.3/§4.4: configurações dos canais de notificação (in-app +
-	// navegador) e do worker de tarefas (concorrência / intervalo de polling).
 	interface NotifConfig {
 		in_app_enabled: boolean;
 		retention_days: number;
@@ -17,16 +22,12 @@
 	let notif: NotifConfig = $state({ in_app_enabled: true, retention_days: 90, browser_notifications: false });
 	let tasksCfg: TasksConfig = $state({ max_concurrency: 2, worker_poll_ms: 500 });
 	let saving = $state(false);
-	let message = $state<{ kind: 'success' | 'error'; text: string } | null>(null);
+	let message: { kind: 'success' | 'error'; text: string } | null = $state(null);
 	let browserPerm: NotificationPermission | 'unsupported' = $state('default');
 
 	onMount(async () => {
 		await Promise.all([loadNotif(), loadTasks()]);
-		if (typeof Notification === 'undefined') {
-			browserPerm = 'unsupported';
-		} else {
-			browserPerm = Notification.permission;
-		}
+		browserPerm = typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
 	});
 
 	async function loadNotif(): Promise<void> {
@@ -92,193 +93,92 @@
 	<title>Notificações & Tarefas · openJob</title>
 </svelte:head>
 
-<h1 class="page-title">Configurações</h1>
+<PageHeader
+	title="Configurações"
+	subtitle="Canais de notificação e parâmetros do worker de tarefas de IA."
+	breadcrumb={[{ label: 'Início', href: '/' }, { label: 'Configurações', href: '/settings' }, { label: 'Notificações & Tarefas' }]}
+/>
+
 <SettingsNav active="notifications" />
 
-<section class="card">
-	<h2>Notificações</h2>
+{#if message}
+	<Alert severity={message.kind}>{message.text}</Alert>
+{/if}
 
-	<label class="row">
-		<input type="checkbox" bind:checked={notif.in_app_enabled} />
-		<span>
-			Sino in-app ativado
-			<small>Feed persistido em /notifications. Desativar não afeta o Telegram (quando configurado).</small>
-		</span>
-	</label>
+<div class="settings-grid">
+	<Card title="Notificações" subtitle="Sino in-app, retenção e notificações do navegador.">
+		<div class="switches">
+			<Switch
+				label="Sino in-app ativado"
+				description="Feed persistido em /notifications. Desativar não afeta o Telegram."
+				bind:checked={notif.in_app_enabled}
+			/>
+			<Field label="Retenção (dias)" for="retention_days" hint="Notificações lidas há mais tempo que isso são apagadas. Não lidas nunca são.">
+				<Input id="retention_days" type="number" min="1" max="3650" bind:value={notif.retention_days} />
+			</Field>
+			<Switch
+				label="Notificações do navegador"
+				description={browserPerm === 'unsupported'
+					? 'Sem suporte neste navegador.'
+					: browserPerm === 'denied'
+						? 'Permissão negada nas configurações do navegador.'
+						: browserPerm === 'granted'
+							? 'Dispara só com a aba em background (best-effort).'
+							: 'Precisa de permissão do navegador.'}
+				bind:checked={notif.browser_notifications}
+				disabled={browserPerm === 'unsupported' || browserPerm === 'denied'}
+			/>
+		</div>
+		{#if browserPerm === 'default'}
+			<Button variant="secondary" onclick={enableBrowserNotifications}>Permitir notificações do navegador</Button>
+		{/if}
+		{#if !notif.in_app_enabled}
+			<Alert severity="warning" title="Sino in-app desligado">Novas notificações não serão gravadas.</Alert>
+		{/if}
+	</Card>
 
-	<label class="row">
-		<span>
-			Retenção (dias)
-			<small>Notificações lidas há mais tempo que isso são apagadas. Não lidas nunca são.</small>
-		</span>
-		<input
-			type="number"
-			min="1"
-			max="3650"
-			bind:value={notif.retention_days}
-			class="num"
-		/>
-	</label>
+	<Card title="Tarefas de IA (worker)" subtitle="Concorrência e intervalo de varredura da fila.">
+		<div class="switches">
+			<Field label="Concorrência máxima" for="max_concurrency" hint="1 a 8 workers em paralelo (1–8). Afeta imediatamente, sem restart.">
+				<Input id="max_concurrency" type="number" min="1" max="8" bind:value={tasksCfg.max_concurrency} />
+			</Field>
+			<Field label="Intervalo de polling (ms)" for="worker_poll_ms" hint="Entre 100 e 5000ms entre varreduras da fila.">
+				<Input id="worker_poll_ms" type="number" min="100" max="5000" step="100" bind:value={tasksCfg.worker_poll_ms} />
+			</Field>
+		</div>
+		<p class="hint">
+			O scoring compartilha um único limite de requisições por provedor de IA — aumentar a concorrência
+			não estoura o rate limit do seu BYOK.
+		</p>
+	</Card>
+</div>
 
-	<label class="row">
-		<input
-			type="checkbox"
-			bind:checked={notif.browser_notifications}
-			disabled={browserPerm === 'unsupported' || browserPerm === 'denied'}
-		/>
-		<span>
-			Notificações do navegador
-			<small>
-				{#if browserPerm === 'unsupported'}
-					Sem suporte neste navegador.
-				{:else if browserPerm === 'denied'}
-					Permissão negada nas configurações do navegador.
-				{:else if browserPerm === 'granted'}
-					Dispara só quando a aba está em background (best-effort).
-				{:else}
-					Precisa de permissão do navegador.
-				{/if}
-			</small>
-		</span>
-	</label>
-
-	{#if browserPerm === 'default'}
-		<button class="btn" onclick={enableBrowserNotifications}>Permitir notificações do navegador</button>
-	{/if}
-
-	{#if !notif.in_app_enabled}
-		<p class="warn">⚠ Sino in-app desligado — novas notificações não serão gravadas.</p>
-	{/if}
-</section>
-
-<section class="card">
-	<h2>Tarefas de IA (worker)</h2>
-
-	<label class="row">
-		<span>
-			Concorrência máxima
-			<small>1–8 workers em paralelo (afeta imediatamente, sem restart).</small>
-		</span>
-		<input type="number" min="1" max="8" bind:value={tasksCfg.max_concurrency} class="num" />
-	</label>
-
-	<label class="row">
-		<span>
-			Intervalo de polling (ms)
-			<small>100–5000ms entre varreduras da fila.</small>
-		</span>
-		<input type="number" min="100" max="5000" step="100" bind:value={tasksCfg.worker_poll_ms} class="num" />
-	</label>
-
-	<p class="muted">
-		Scoring de vagas compartilha um único limite de requisições por provedor de IA —
-		aumentar a concorrência não estoura o rate limit do seu BYOK.
-	</p>
-</section>
-
-<div class="save-area">
-	<button class="btn primary" disabled={saving} onclick={saveAll}>
-		{saving ? 'Salvando…' : 'Salvar'}
-	</button>
-	{#if message}
-		<span class="msg {message.kind}">{message.text}</span>
-	{/if}
+<div class="form-actions">
+	<Button loading={saving} onclick={saveAll}>Salvar</Button>
 </div>
 
 <style>
-	.card {
-		background: var(--surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		padding: 1rem;
-		margin-bottom: 1rem;
+	.settings-grid {
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: var(--space-4);
 	}
 
-	.card h2 {
-		font-size: 1rem;
-		margin: 0 0 0.75rem;
-	}
-
-	.row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 1rem;
-		padding: 0.5rem 0;
-		font-size: 0.9rem;
-	}
-
-	.row span {
+	.switches {
 		display: flex;
 		flex-direction: column;
-		gap: 0.15rem;
+		gap: var(--space-4);
+		margin-bottom: var(--space-4);
 	}
 
-	.row small {
-		color: var(--text-muted);
-		font-size: 0.75rem;
+	.form-actions {
+		margin-top: var(--space-6);
+		margin-bottom: var(--space-12);
 	}
 
-	.num {
-		width: 6rem;
-		padding: 0.4rem 0.6rem;
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		background: var(--surface-soft);
-		color: var(--text);
-	}
-
-	.btn {
-		border: 1px solid var(--border);
-		background: var(--surface);
-		color: var(--text);
-		border-radius: var(--radius);
-		padding: 0.5rem 1rem;
-		font-size: 0.9rem;
-		cursor: pointer;
-		margin-top: 0.5rem;
-	}
-
-	.btn.primary {
-		background: var(--accent);
-		border-color: var(--accent);
-		color: #fff;
-		font-weight: 600;
-	}
-
-	.btn:disabled {
-		opacity: 0.6;
-		cursor: default;
-	}
-
-	.warn {
-		color: #b45309;
-		background: #fffbeb;
-		border-radius: var(--radius);
-		padding: 0.5rem 0.7rem;
-		font-size: 0.82rem;
-		margin: 0.5rem 0 0;
-	}
-
-	.muted {
-		color: var(--text-muted);
-		font-size: 0.78rem;
-		margin: 0.5rem 0 0;
-	}
-
-	.save-area {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-	}
-
-	.msg.success {
-		color: #047857;
-		font-size: 0.85rem;
-	}
-
-	.msg.error {
-		color: #b91c1c;
-		font-size: 0.85rem;
+	@media (min-width: 768px) {
+		.settings-grid {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
 	}
 </style>

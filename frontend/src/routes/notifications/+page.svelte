@@ -1,9 +1,20 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { markNotificationRead, markAllNotificationsRead, unreadCount, type NotificationItem } from '#lib/notifications.svelte.ts';
+	import PageHeader from '#lib/ui/PageHeader.svelte';
+	import Card from '#lib/ui/Card.svelte';
+	import Section from '#lib/ui/Section.svelte';
+	import Field from '#lib/ui/Field.svelte';
+	import Select from '#lib/ui/Select.svelte';
+	import Checkbox from '#lib/ui/Checkbox.svelte';
+	import SegmentedControl from '#lib/ui/SegmentedControl.svelte';
+	import Button from '#lib/ui/Button.svelte';
+	import IconButton from '#lib/ui/IconButton.svelte';
+	import Badge from '#lib/ui/Badge.svelte';
+	import Alert from '#lib/ui/Alert.svelte';
+	import EmptyState from '#lib/ui/EmptyState.svelte';
+	import Icon from '#lib/ui/Icon.svelte';
 
-	// CP10 §4.4: feed completo com filtros por type/severity, "somente não
-	// lidas" e botão de limpar lidas.
 	const types = [
 		{ value: '', label: 'Todos os tipos' },
 		{ value: 'application_status', label: 'Candidaturas' },
@@ -13,7 +24,7 @@
 		{ value: 'source_error', label: 'Erros de fonte' }
 	];
 	const severities = [
-		{ value: '', label: 'Toda severidade' },
+		{ value: '', label: 'Todas' },
 		{ value: 'info', label: 'Info' },
 		{ value: 'success', label: 'Sucesso' },
 		{ value: 'warning', label: 'Aviso' },
@@ -28,7 +39,23 @@
 	let severityFilter = $state('');
 	let unreadOnly = $state(false);
 
-	const sevIcon: Record<string, string> = { success: '✔', warning: '⚠', error: '✖', info: 'ℹ' };
+	const sevIcon: Record<string, string> = {
+		success: 'circle-check',
+		warning: 'warning',
+		error: 'circle-alert',
+		info: 'info'
+	};
+
+	const grouped = $derived.by(() => {
+		const groups: { label: string; items: NotificationItem[] }[] = [];
+		for (const item of items) {
+			const label = dayLabel(item.created_at);
+			const last = groups[groups.length - 1];
+			if (last && last.label === label) last.items.push(item);
+			else groups.push({ label, items: [item] });
+		}
+		return groups;
+	});
 
 	async function load(reset = true): Promise<void> {
 		if (reset) {
@@ -74,16 +101,17 @@
 	}
 
 	function fmtWhen(iso: string): string {
-		return new Date(iso).toLocaleString('pt-BR', {
-			day: '2-digit',
-			month: 'short',
-			hour: '2-digit',
-			minute: '2-digit'
-		});
+		return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 	}
 
-	function refilter(): void {
-		void load();
+	function dayLabel(iso: string): string {
+		const d = new Date(iso);
+		const today = new Date();
+		const yesterday = new Date(today);
+		yesterday.setDate(today.getDate() - 1);
+		if (d.toDateString() === today.toDateString()) return 'Hoje';
+		if (d.toDateString() === yesterday.toDateString()) return 'Ontem';
+		return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' });
 	}
 
 	onMount(() => void load());
@@ -93,206 +121,192 @@
 	<title>Notificações · openJob</title>
 </svelte:head>
 
-<h1 class="page-title">Notificações</h1>
-<p class="page-subtitle">
-	Tudo que aconteceu com suas candidaturas, buscas e tarefas de IA.
-</p>
+<PageHeader
+	title="Notificações"
+	subtitle="Tudo que aconteceu com suas candidaturas, buscas e tarefas de IA."
+	breadcrumb={[{ label: 'Início', href: '/' }, { label: 'Notificações' }]}
+>
+	{#snippet actions()}
+		<Badge tone="primary">{$unreadCount} não lida{$unreadCount === 1 ? '' : 's'}</Badge>
+	{/snippet}
+</PageHeader>
 
-<div class="filters">
-	<select bind:value={typeFilter} onchange={refilter}>
-		{#each types as t}<option value={t.value}>{t.label}</option>{/each}
-	</select>
-	<select bind:value={severityFilter} onchange={refilter}>
-		{#each severities as s}<option value={s.value}>{s.label}</option>{/each}
-	</select>
-	<label class="check">
-		<input type="checkbox" bind:checked={unreadOnly} onchange={refilter} />
-		Somente não lidas
-	</label>
+{#snippet filterActions()}
+	<div class="filter-actions">
+		<IconButton
+			icon="check"
+			label="Marcar todas como lidas"
+			variant="ghost"
+			size="sm"
+			onclick={() => markAllNotificationsRead().then(() => load())}
+		/>
+		<IconButton
+			icon="trash"
+			label="Limpar lidas"
+			variant="ghost"
+			size="sm"
+			onclick={clearRead}
+		/>
+	</div>
+{/snippet}
+
+<div class="filters-mobile">
+	<SegmentedControl options={severities} value={severityFilter} label="Filtrar por severidade" onchange={(value) => { severityFilter = value; void load(); }} />
+	{@render filterActions()}
 </div>
 
-<div class="actions">
-	<span class="pill">{$unreadCount} não lida{$unreadCount === 1 ? '' : 's'}</span>
-	<button class="btn ghost" onclick={() => markAllNotificationsRead().then(() => load())}>
-		Marcar todas como lidas
-	</button>
-	<button class="btn ghost" onclick={clearRead}>Limpar lidas</button>
+<div class="filters-inline">
+	<Field label="Tipo" for="filter-type">
+		<Select id="filter-type" options={types} value={typeFilter} onchange={(e) => { typeFilter = e.currentTarget.value; void load(); }} />
+	</Field>
+	<Field label="Severidade" for="filter-severity">
+		<Select id="filter-severity" options={severities} value={severityFilter} onchange={(e) => { severityFilter = e.currentTarget.value; void load(); }} />
+	</Field>
+	<Checkbox label="Somente não lidas" checked={unreadOnly} onchange={() => void load()} />
+	{@render filterActions()}
 </div>
 
 {#if error}
-	<div class="status error" role="status">{error}</div>
+	<Alert severity="error" title="Não foi possível carregar">{error}</Alert>
 {/if}
 
 {#if loading && items.length === 0}
-	<p class="empty">Carregando notificações…</p>
+	<Card><p class="hint">Carregando notificações…</p></Card>
 {:else if items.length === 0}
-	<div class="empty-state">
-		<p><strong>Nenhuma notificação por aqui.</strong></p>
-		<p>
-			Elas aparecem quando uma candidatura muda de status, uma busca automática
-			termina ou uma tarefa de IA conclui/falha.
-		</p>
-		<p><a href="/settings/notifications">Configurar notificações</a></p>
-	</div>
+	<Card>
+		<EmptyState
+			title="Nenhuma notificação por aqui"
+			description="Elas aparecem quando uma candidatura muda de status, uma busca termina ou uma tarefa de IA conclui/falha."
+		>
+			<a class="cta" href="/settings/notifications">Configurar notificações</a>
+		</EmptyState>
+	</Card>
 {:else}
-	<div class="list">
-		{#each items as item (item.id)}
-			<button class="card sev-{item.severity}" class:unread={item.read_at === null} onclick={() => openItem(item)}>
-				<header class="card-head">
-					<div>
-						<h2>{sevIcon[item.severity] ?? 'ℹ'} {item.title}</h2>
-						<p class="muted">{fmtWhen(item.created_at)}</p>
-					</div>
-					{#if item.read_at === null}
-						<span class="dot" title="Não lida"></span>
-					{/if}
-				</header>
-				<p class="body">{item.body}</p>
-			</button>
-		{/each}
-	</div>
-
+	{#each grouped as group (group.label)}
+		<Section title={group.label}>
+			<div class="feed">
+				{#each group.items as item (item.id)}
+					<Card
+						class="feed-card sev-{item.severity} {item.read_at === null ? 'unread' : ''}"
+						onclick={() => openItem(item)}
+					>
+						<span class="sev-icon"><Icon name={sevIcon[item.severity] ?? 'info'} size={20} /></span>
+						<span class="body">
+							<strong>{item.title}</strong>
+							<span class="text">{item.body}</span>
+							<span class="when">{fmtWhen(item.created_at)}</span>
+						</span>
+						{#if item.read_at === null}<span class="dot" role="img" aria-label="Não lida"></span>{/if}
+					</Card>
+				{/each}
+			</div>
+		</Section>
+	{/each}
 	{#if cursor}
-		<button class="btn" disabled={loading} onclick={() => load(false)}>
-			{loading ? 'Carregando…' : 'Carregar mais'}
-		</button>
+		<Button variant="secondary" loading={loading} onclick={() => load(false)}>Carregar mais</Button>
 	{/if}
 {/if}
 
 <style>
-	.filters {
+	.filters-mobile {
 		display: flex;
-		gap: 0.5rem;
 		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
 		flex-wrap: wrap;
-		margin-bottom: 0.75rem;
+		margin-bottom: var(--space-4);
 	}
 
-	.filters select {
-		padding: 0.45rem 0.6rem;
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		background: var(--surface);
-		color: var(--text);
-		font-size: 0.85rem;
+	.filters-inline {
+		display: none;
+		gap: var(--space-3);
+		align-items: end;
+		margin-bottom: var(--space-4);
 	}
 
-	.check {
-		display: inline-flex;
-		gap: 0.35rem;
-		align-items: center;
-		font-size: 0.85rem;
-		color: var(--text-muted);
-	}
-
-	.actions {
+	.filter-actions {
 		display: flex;
-		gap: 0.5rem;
 		align-items: center;
-		margin-bottom: 1rem;
-		flex-wrap: wrap;
+		gap: var(--space-1);
+		margin-left: auto;
 	}
 
-	.btn {
-		border: 1px solid var(--border);
-		background: var(--surface);
-		color: var(--text);
-		border-radius: var(--radius);
-		padding: 0.45rem 0.8rem;
-		font-size: 0.85rem;
+	.filters-inline > :global(.field) {
+		min-width: 12rem;
+	}
+
+	.feed {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	:global(.card.feed-card) {
 		cursor: pointer;
 	}
 
-	.btn.ghost {
-		border: none;
-		background: none;
-		color: var(--accent);
-		padding: 0.2rem 0;
-	}
-
-	.card {
-		display: block;
-		width: 100%;
-		text-align: left;
-		background: var(--surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		padding: 0.9rem 1rem;
-		margin-bottom: 0.75rem;
-		cursor: pointer;
-		color: var(--text);
-	}
-
-	.card.unread {
-		border-color: var(--accent);
-		background: var(--accent-soft);
-	}
-
-	.card-head {
+	:global(.card.feed-card .card-body) {
 		display: flex;
 		align-items: flex-start;
-		justify-content: space-between;
-		gap: 0.75rem;
+		gap: var(--space-3);
+		text-align: left;
 	}
 
-	.card-head h2 {
-		font-size: 0.95rem;
-		margin: 0;
+	:global(.card.feed-card.unread) {
+		border-color: var(--color-primary);
+		background: var(--color-info-soft);
+	}
+
+	.sev-icon {
+		color: var(--color-text-muted);
+	}
+
+	:global(.sev-success) .sev-icon { color: var(--color-success); }
+	:global(.sev-warning) .sev-icon { color: var(--color-warning); }
+	:global(.sev-error) .sev-icon { color: var(--color-error); }
+
+	.body {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		flex: 1;
+		min-width: 0;
+	}
+
+	.body strong {
+		font-size: var(--text-body);
+	}
+
+	.text,
+	.when {
+		font-size: var(--text-caption);
+		line-height: var(--leading-caption);
+		color: var(--color-text-muted);
 	}
 
 	.dot {
-		width: 0.55rem;
-		height: 0.55rem;
-		border-radius: 999px;
-		background: var(--accent);
+		width: 8px;
+		height: 8px;
+		margin-top: var(--space-2);
+		border-radius: var(--radius-pill);
+		background: var(--color-primary);
 		flex-shrink: 0;
-		margin-top: 0.3rem;
 	}
 
-	.body {
-		color: var(--text-muted);
-		font-size: 0.85rem;
-		margin: 0.3rem 0 0;
+	.cta {
+		display: inline-flex;
+		align-items: center;
+		min-height: var(--touch-target);
+		font-weight: var(--weight-semibold);
 	}
 
-	.muted {
-		color: var(--text-muted);
-		font-size: 0.75rem;
-		margin: 0.1rem 0 0;
-	}
+	@media (min-width: 1024px) {
+		.filters-mobile {
+			display: none;
+		}
 
-	.status.error {
-		background: #fef2f2;
-		color: #b91c1c;
-		border-radius: var(--radius);
-		padding: 0.6rem 0.8rem;
-		margin-bottom: 0.75rem;
-	}
-
-	.empty-state {
-		text-align: center;
-		color: var(--text-muted);
-		padding: 1.5rem 0;
-		font-size: 0.9rem;
-	}
-
-	.empty-state a {
-		color: var(--accent);
-		font-weight: 600;
-	}
-
-	.empty {
-		color: var(--text-muted);
-		text-align: center;
-		padding: 1.5rem 0;
-	}
-
-	.pill {
-		background: var(--accent-soft);
-		color: var(--accent);
-		border-radius: 999px;
-		padding: 0.15rem 0.6rem;
-		font-size: 0.75rem;
-		font-weight: 600;
+		.filters-inline {
+			display: flex;
+		}
 	}
 </style>

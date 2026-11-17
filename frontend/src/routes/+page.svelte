@@ -1,5 +1,14 @@
 <script lang="ts">
-	import PageStub from '#lib/components/PageStub.svelte';
+	import Card from '#lib/ui/Card.svelte';
+	import Icon from '#lib/ui/Icon.svelte';
+	import EmptyState from '#lib/ui/EmptyState.svelte';
+
+	const shortcuts = [
+		{ href: '/curriculum', title: 'Currículo', description: 'Base e versões adaptadas', icon: 'file' },
+		{ href: '/jobs', title: 'Vagas', description: 'Adicionar e acompanhar vagas', icon: 'briefcase' },
+		{ href: '/applications', title: 'Candidaturas', description: 'Status de cada aplicação', icon: 'clipboard' },
+		{ href: '/settings', title: 'Configurações', description: 'Chaves e preferências', icon: 'settings' }
+	];
 </script>
 
 <svelte:head>
@@ -7,83 +16,67 @@
 	<meta name="description" content="Assistente local-first para a busca de emprego" />
 </svelte:head>
 
-<h1 class="page-title">openJob</h1>
-<p class="page-subtitle">Seu assistente de busca de emprego, rodando local.</p>
+<!-- Título e tagline agora vivem no header global do shell. -->
+<h1 class="visually-hidden">Início</h1>
 
-<div class="cards">
-	<a class="card" href="/curriculum">
-		<span class="card-icon">📄</span>
-		<span class="card-text">
-			<strong>Currículo</strong>
-			<small>Base e versões adaptadas</small>
-		</span>
-	</a>
-	<a class="card" href="/jobs">
-		<span class="card-icon">💼</span>
-		<span class="card-text">
-			<strong>Vagas</strong>
-			<small>Adicionar e acompanhar vagas</small>
-		</span>
-	</a>
-	<a class="card" href="/applications">
-		<span class="card-icon">📮</span>
-		<span class="card-text">
-			<strong>Candidaturas</strong>
-			<small>Status de cada aplicação</small>
-		</span>
-	</a>
-	<a class="card" href="/settings">
-		<span class="card-icon">⚙️</span>
-		<span class="card-text">
-			<strong>Configurações</strong>
-			<small>Chaves e preferências</small>
-		</span>
-	</a>
+<div class="grid grid-2 app-links">
+	{#each shortcuts as item (item.href)}
+		<Card href={item.href} class="shortcut">
+			<div class="shortcut-inner">
+				<span class="shortcut-icon"><Icon name={item.icon} size={24} /></span>
+				<span class="shortcut-text">
+					<strong>{item.title}</strong>
+					<small>{item.description}</small>
+				</span>
+				<Icon name="chevron-right" size={20} />
+			</div>
+		</Card>
+	{/each}
 </div>
 
-<PageStub
-	title="Dashboard"
-	subtitle="Resumo do progresso das candidaturas"
-	emoji="📊"
-/>
+<Card title="Dashboard" subtitle="Resumo do progresso das candidaturas" class="dashboard-stub">
+	<EmptyState
+		icon="sparkles"
+		title="Seu resumo chega em breve"
+		description="Por enquanto, use os atalhos acima para navegar pelas seções do openJob."
+	/>
+</Card>
 
 <style>
-	.cards {
-		display: grid;
-		grid-template-columns: repeat(2, 1fr);
-		gap: 0.625rem;
-		margin-bottom: 1.5rem;
+	.app-links {
+		margin-bottom: var(--space-6);
 	}
 
-	.card {
+	.shortcut-inner {
 		display: flex;
 		align-items: center;
-		gap: 0.625rem;
-		background: var(--surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		padding: 0.75rem;
-		text-decoration: none;
-		color: inherit;
-		-webkit-tap-highlight-color: transparent;
+		gap: var(--space-3);
 	}
 
-	.card:active {
-		background: var(--accent-soft);
+	.shortcut-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 44px;
+		height: 44px;
+		flex-shrink: 0;
+		border-radius: var(--radius-md);
+		background: var(--color-info-soft);
+		color: var(--color-primary);
 	}
 
-	.card-icon {
-		font-size: 1.375rem;
-	}
-
-	.card-text {
+	.shortcut-text {
 		display: flex;
 		flex-direction: column;
-		line-height: 1.25;
+		min-width: 0;
+		flex: 1;
+		line-height: 1.3;
 	}
 
-	.card-text small {
-		color: var(--text-muted);
-		font-size: 0.75rem;
+	.shortcut-text small {
+		margin-top: var(--space-1);
+		font-size: var(--text-caption);
+		line-height: var(--leading-caption);
+		color: var(--color-text-muted);
 	}
 </style>

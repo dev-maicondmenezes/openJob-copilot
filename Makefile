@@ -1,4 +1,4 @@
-.PHONY: build build-spa run dev dev-api dev-web test vet tidy clean
+.PHONY: build build-spa run dev dev-api dev-web test test-ui vet tidy clean
 
 # Dev server completo: Go com hot reload (air) + SPA com HMR (Vite), em paralelo.
 # - SPA em http://localhost:5173 (proxy de /api para o Go, sem CORS)
@@ -46,6 +46,10 @@ run: build
 
 test: build-spa
 	cd backend && go test ./...
+
+# Verificações de UI do CP12: tipos, lint de tokens e testes Playwright.
+test-ui:
+	cd frontend && npm run check && npm run lint:ui && npm run test:e2e && npm run audit:a11y && npm run test:visual
 
 vet:
 	cd backend && go vet ./...

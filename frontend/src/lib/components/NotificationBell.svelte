@@ -7,6 +7,9 @@
 		markAllNotificationsRead,
 		type NotificationItem
 	} from '#lib/notifications.svelte.ts';
+	import IconButton from '#lib/ui/IconButton.svelte';
+	import Icon from '#lib/ui/Icon.svelte';
+	import Alert from '#lib/ui/Alert.svelte';
 
 	let open = $state(false);
 	let items: NotificationItem[] = $state([]);
@@ -49,7 +52,6 @@
 		return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' });
 	}
 
-	// Agrupa por dia, em ordem de inserção (feed já vem mais novo primeiro).
 	const grouped = $derived.by(() => {
 		const groups: { label: string; items: NotificationItem[] }[] = [];
 		for (const item of items) {
@@ -61,60 +63,79 @@
 		return groups;
 	});
 
-	const sevIcon = $derived.by<Record<string, string>>(() => ({
-		success: '✔',
-		warning: '⚠',
-		error: '✖',
-		info: 'ℹ'
-	}));
+	const sevIcon: Record<string, string> = {
+		success: 'circle-check',
+		warning: 'warning',
+		error: 'circle-alert',
+		info: 'info'
+	};
 
 	function onWindowClick(e: MouseEvent): void {
 		if (open && panelRef && !panelRef.contains(e.target as Node)) open = false;
 	}
+
+	function onWindowKeydown(e: KeyboardEvent): void {
+		if (open && e.key === 'Escape') open = false;
+	}
 </script>
 
-<svelte:window onclick={onWindowClick} />
+<svelte:window onclick={onWindowClick} onkeydown={onWindowKeydown} />
 
 <div class="bell-wrap" bind:this={panelRef}>
-	<button
-		class="bell"
-		aria-label="Notificações"
-		title="Notificações"
-		onclick={toggle}
-	>
-		<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-			<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-			<path d="M13.7 21a2 2 0 0 1-3.4 0" />
-		</svg>
+	<div class="bell-button">
+		<IconButton
+			icon="bell"
+			label="Notificações"
+			variant="ghost"
+			iconSize={24}
+			onclick={toggle}
+			aria-expanded={open}
+			aria-haspopup="dialog"
+		/>
 		{#if $unreadCount > 0}
-			<span class="badge">{$unreadCount > 99 ? '99+' : $unreadCount}</span>
+			<span class="badge" aria-hidden="true">{$unreadCount > 99 ? '99+' : $unreadCount}</span>
 		{/if}
-	</button>
+	</div>
 
 	{#if open}
 		<div class="panel" role="dialog" aria-label="Notificações recentes">
 			<header class="panel-head">
 				<strong>Notificações</strong>
 				<div class="head-actions">
-					<button class="ghost" onclick={() => markAllNotificationsRead().then(loadRecent)}>
-						Marcar todas como lidas
-					</button>
-					<a class="ghost" href="/notifications" onclick={() => (open = false)}>Ver todas</a>
+					<IconButton
+						icon="check"
+						label="Marcar todas como lidas"
+						variant="ghost"
+						size="sm"
+						onclick={() => markAllNotificationsRead().then(loadRecent)}
+					/>
+					<a
+						href="/notifications"
+						class="icon-link"
+						aria-label="Ver todas"
+						title="Ver todas"
+						onclick={() => (open = false)}
+					>
+						<Icon name="arrow-up-right" size={20} />
+					</a>
 				</div>
 			</header>
 
 			{#if items.length === 0}
-				<p class="empty">Nada por aqui ainda.</p>
+				<Alert title="Nada por aqui ainda" severity="info">
+					Notificações aparecem quando uma candidatura muda de status ou uma busca termina.
+				</Alert>
 			{:else}
 				{#each grouped as group (group.label)}
 					<p class="day">{group.label}</p>
 					{#each group.items as item (item.id)}
 						<button
+							type="button"
 							class="item sev-{item.severity}"
 							class:unread={item.read_at === null}
 							onclick={() => clickItem(item)}
 						>
-							<span class="icon">{sevIcon[item.severity] ?? 'ℹ'}</span>
+							<Icon name={sevIcon[item.severity] ?? 'info'} size={20} />
 							<span class="text">
 								<strong>{item.title}</strong>
 								<span class="body">{item.body}</span>
@@ -132,138 +153,130 @@
 		position: relative;
 	}
 
-	.bell {
+	.bell-button {
 		position: relative;
 		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 2.4rem;
-		height: 2.4rem;
-		border: 1px solid var(--border);
-		border-radius: 999px;
-		background: var(--surface);
-		color: var(--text);
-		cursor: pointer;
 	}
 
 	.badge {
 		position: absolute;
 		top: -4px;
-		right: -6px;
-		background: #dc2626;
-		color: #fff;
-		font-size: 0.65rem;
-		font-weight: 700;
-		border-radius: 999px;
-		padding: 0.05rem 0.35rem;
-		min-width: 1rem;
+		right: -4px;
+		min-width: 18px;
+		height: 18px;
+		padding: 0 var(--space-1);
+		border-radius: var(--radius-pill);
+		background: var(--color-error);
+		color: var(--color-on-primary);
+		font-size: 11px;
+		font-weight: var(--weight-bold);
+		line-height: 18px;
 		text-align: center;
+		pointer-events: none;
 	}
 
 	.panel {
 		position: absolute;
 		right: 0;
-		top: calc(100% + 0.5rem);
-		width: min(22rem, calc(100vw - 2rem));
+		top: calc(100% + var(--space-2));
+		width: min(22rem, calc(100vw - var(--space-8)));
 		max-height: 24rem;
 		overflow-y: auto;
-		background: var(--surface);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-md);
 		z-index: 50;
-		padding: 0.5rem;
+		padding: var(--space-3);
 	}
 
 	.panel-head {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 0.5rem;
-		padding: 0.25rem 0.25rem 0.5rem;
+		gap: var(--space-2);
+		padding: var(--space-1) var(--space-2) var(--space-3);
 	}
 
 	.head-actions {
 		display: flex;
-		gap: 0.5rem;
+		gap: var(--space-2);
 		align-items: center;
+		flex-wrap: wrap;
 	}
 
-	.ghost {
-		background: none;
-		border: none;
-		color: var(--accent);
-		font-size: 0.75rem;
-		cursor: pointer;
-		padding: 0;
-		text-decoration: none;
+	.icon-link {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: var(--touch-target);
+		height: var(--touch-target);
+		border-radius: var(--radius-md);
+		color: var(--color-text-secondary);
+	}
+	.icon-link:hover {
+		background: var(--color-surface-elevated);
 	}
 
 	.day {
-		font-size: 0.7rem;
-		font-weight: 700;
-		color: var(--text-muted);
+		font-size: 11px;
+		font-weight: var(--weight-bold);
+		color: var(--color-text-muted);
 		text-transform: uppercase;
-		margin: 0.5rem 0.25rem 0.25rem;
+		margin: var(--space-4) var(--space-3) var(--space-2);
 	}
 
 	.item {
 		display: flex;
-		gap: 0.5rem;
+		gap: var(--space-3);
 		width: 100%;
 		text-align: left;
 		background: none;
-		border: none;
-		border-radius: var(--radius);
-		padding: 0.5rem;
+		border: 0;
+		border-radius: var(--radius-md);
+		padding: var(--space-3) var(--space-4);
+		margin-bottom: var(--space-2);
 		cursor: pointer;
-		color: var(--text);
+		color: var(--color-text-primary);
 	}
 
 	.item:hover {
-		background: var(--surface-soft);
+		background: var(--color-surface-elevated);
 	}
 
 	.item.unread {
-		background: var(--accent-soft);
+		background: var(--color-info-soft);
 	}
 
-	.icon {
-		flex-shrink: 0;
-		width: 1.1rem;
-		text-align: center;
-		color: var(--text-muted);
+	.item.sev-success :global(.icon) {
+		color: var(--color-success);
 	}
-
-	.item.sev-success .icon { color: #047857; }
-	.item.sev-warning .icon { color: #b45309; }
-	.item.sev-error .icon { color: #b91c1c; }
+	.item.sev-warning :global(.icon) {
+		color: var(--color-warning);
+	}
+	.item.sev-error :global(.icon) {
+		color: var(--color-error);
+	}
 
 	.text {
 		display: flex;
 		flex-direction: column;
-		gap: 0.1rem;
+		gap: 2px;
 		min-width: 0;
 	}
 
 	.text strong {
-		font-size: 0.85rem;
+		font-size: var(--text-caption);
 	}
 
 	.body {
-		font-size: 0.78rem;
-		color: var(--text-muted);
+		font-size: var(--text-caption);
+		line-height: var(--leading-caption);
+		color: var(--color-text-muted);
 		overflow: hidden;
 		display: -webkit-box;
 		-webkit-line-clamp: 2;
 		line-clamp: 2;
 		-webkit-box-orient: vertical;
-	}
-
-	.empty {
-		color: var(--text-muted);
-		text-align: center;
-		padding: 1rem 0;
-		font-size: 0.85rem;
 	}
 </style>
