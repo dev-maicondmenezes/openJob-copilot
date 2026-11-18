@@ -65,15 +65,19 @@ func New(cfg config.Config, logger *slog.Logger, repo store.Repository, masterKe
 	appNotifier := notifier.NewInApp(repo, logger)
 	appNotifier.Start(bus)
 
+	orch := discovery.NewOrchestrator(repo, nil, masterKey, llmClient, logger)
+
 	// CP10: durable task queue (docs/adr/0010) with the migrated AI handlers.
+	// CP14 adds discover_sources so repeated "Buscar agora" clicks are queued
+	// and serialized instead of being rejected/lost.
 	registry := tasks.NewRegistry()
 	registry.Register(tasks.NewScoreJobHandler(repo, masterKey, llmClient, rate.NewLimiter(rate.Every(300*time.Millisecond), 1), logger))
 	registry.Register(tasks.NewExtractKeywordsHandler(repo))
+	registry.Register(tasks.NewDiscoverHandler(orch, logger))
 	taskCfg, _ := tasks.LoadConfig(context.Background(), repo)
 	pool := tasks.NewPool(repo, registry, bus, taskCfg, logger)
 	pool.Start()
 
-	orch := discovery.NewOrchestrator(repo, nil, masterKey, llmClient, logger)
 	orch.SetScoreEnqueuer(tasks.DiscoveryEnqueuer{Pool: pool})
 	orch.SetPublisher(bus)
 	if discCfg, err := orch.LoadConfig(context.Background()); err == nil {

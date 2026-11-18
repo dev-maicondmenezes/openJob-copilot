@@ -42,6 +42,7 @@
 			case 'score_job': return t('tasks.type.score');
 			case 'extract_resume_keywords': return t('tasks.type.keywords');
 			case 'tailor_resume': return t('tasks.type.tailoring');
+			case 'discover_sources': return t('tasks.type.discover');
 			default: return type;
 		}
 	}

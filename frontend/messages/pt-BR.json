@@ -699,5 +699,21 @@
   "jobs.status_label.approved": "aprovada",
   "jobs.status_label.discarded": "descartada",
   "errors.application.invalid_status": "Status inválido",
-  "errors.settings.invalid_locale": "Idioma não suportado"
+  "errors.settings.invalid_locale": "Idioma não suportado",
+  "sources.col.type": "Tipo",
+  "sources.col.usage_today": "Uso hoje",
+  "sources.col.health": "Saúde",
+  "sources.cell.sec": "s",
+  "sources.type.api": "API",
+  "sources.type.scraping": "Scraping",
+  "sources.badge.scraping": "scraping",
+  "sources.health.ok": "ok",
+  "sources.health.degraded": "degradada",
+  "sources.health.blocked": "bloqueada",
+  "sources.usage.details": "{count} detalhes hoje",
+  "sources.scraping_warning": "Esta fonte não oferece API. O openJob respeita limites conservadores para não bloquear seu acesso.",
+  "notifications.source.degraded.title": "Fonte de vagas degradada",
+  "notifications.source.degraded.body": "A fonte {source} foi desativada por 24h após 3 falhas consecutivas.",
+  "tasks.type.discover": "Busca de vagas",
+  "jobs.flash.search_queued": "Busca enfileirada ({position} na fila). O progresso aparece em Tarefas."
 }

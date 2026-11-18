@@ -237,6 +237,14 @@
 				status = { kind: 'error', text: errorText(err, t('jobs.flash.search_start_failed')) };
 				discovering = false;
 				return;
+			} else {
+				const queued = await res.json().catch(() => ({}));
+				if (queued.status === 'queued' && queued.queue_position > 1) {
+					status = {
+						kind: 'success',
+						text: t('jobs.flash.search_queued', { position: queued.queue_position })
+					};
+				}
 			}
 			for (let i = 0; i < 40; i++) {
 				await new Promise((r) => setTimeout(r, 1200));

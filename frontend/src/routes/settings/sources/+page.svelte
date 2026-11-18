@@ -19,13 +19,27 @@
 	import type { DataColumn } from '#lib/ui/data.js';
 
 	interface Capabilities {
+		access_type?: 'api' | 'scraping';
 		supports_keyword_search: boolean;
 		supports_pagination: boolean;
 		max_results_per_run: number;
-		rate_limit: { requests: number; period: string };
+		rate_limit: { requests: number; period: string; strategy?: string };
 		attribution_required: boolean;
 		experimental: boolean;
 		recent_window_hours: number;
+		requires_daily_quota?: boolean;
+		daily_quota?: number;
+		quota_unit?: 'requests' | 'details';
+		max_details_per_run?: number;
+		robots_disallowed_paths?: string[];
+	}
+
+	interface SourceHealth {
+		status: 'ok' | 'backoff' | 'degraded' | 'blocked';
+		consecutive_failures: number;
+		backoff_until?: string;
+		degraded_until?: string;
+		last_error?: string;
 	}
 
 	interface Source {
@@ -39,12 +53,56 @@
 		capabilities: Capabilities;
 		created_at: string;
 		updated_at: string;
+		usage_today: number;
+		usage_quota: number;
+		usage_unit: string;
+		details_used: number;
+		health: SourceHealth;
 	}
 
 	interface AdapterInfo {
 		slug: string;
 		name: string;
 		capabilities: Capabilities;
+	}
+
+	function rateLabel(caps: Capabilities): string {
+		const { requests, period } = caps.rate_limit;
+		if (!requests || !period) return t('sources.cell.default');
+		const unit =
+			period === 'second' || period === 's'
+				? t('sources.cell.sec')
+				: period === 'minute'
+					? t('sources.cell.min')
+					: period === 'hour'
+						? t('sources.cell.hour')
+						: period === 'day'
+							? t('sources.cell.day')
+							: period;
+		return `${requests} req / ${unit}`;
+	}
+
+	function usageLabel(src: Source): string {
+		if (src.usage_quota > 0) return `${src.usage_today}/${src.usage_quota}`;
+		return src.usage_today > 0 ? String(src.usage_today) : '—';
+	}
+
+	function healthLabel(health: SourceHealth): string {
+		switch (health.status) {
+			case 'degraded':
+				return t('sources.health.degraded');
+			case 'blocked':
+			case 'backoff':
+				return t('sources.health.blocked');
+			default:
+				return t('sources.health.ok');
+		}
+	}
+
+	function healthTone(health: SourceHealth): 'success' | 'warning' | 'neutral' {
+		if (health.status === 'ok') return 'success';
+		if (health.status === 'degraded' || health.status === 'backoff' || health.status === 'blocked') return 'warning';
+		return 'neutral';
 	}
 
 	let sources: Source[] = $state([]);
@@ -68,9 +126,16 @@
 	const columns = $derived<DataColumn<Source>[]>([
 		{ key: 'name', header: t('sources.col.name_id'), cardLabel: t('sources.col.name'), value: (src) => src.name },
 		{ key: 'adapter', header: t('sources.col.adapter'), value: (src) => src.adapter },
+		{
+			key: 'type',
+			header: t('sources.col.type'),
+			value: (src) => (src.capabilities.access_type === 'scraping' ? t('sources.type.scraping') : t('sources.type.api'))
+		},
 		{ key: 'enabled', header: t('common.active'), value: (src) => (src.enabled ? t('common.active') : t('common.inactive')) },
 		{ key: 'auth', header: t('sources.col.auth'), value: (src) => (src.auth_type === 'api_key' ? (src.has_api_key ? t('sources.cell.key_saved') : t('sources.cell.no_key')) : t('sources.cell.public')) },
-		{ key: 'rate', header: t('sources.col.rate_limit'), value: (src) => (src.capabilities.rate_limit.requests > 0 ? `${src.capabilities.rate_limit.requests}/${src.capabilities.rate_limit.period}` : t('sources.cell.default')) },
+		{ key: 'rate', header: t('sources.col.rate_limit'), value: (src) => rateLabel(src.capabilities) },
+		{ key: 'usage', header: t('sources.col.usage_today'), value: (src) => usageLabel(src) },
+		{ key: 'health', header: t('sources.col.health'), value: (src) => healthLabel(src.health) },
 		{ key: 'updated', header: t('sources.col.updated'), value: (src) => formatDate(src.updated_at) },
 		{ key: 'actions', header: t('tasks.col.actions'), value: () => '' }
 	]);
@@ -243,10 +308,15 @@
 	{#if column.key === 'name'}
 		<strong>{src.name}</strong>
 		<span class="cell-note">{src.id}</span>
+		{#if src.capabilities.access_type === 'scraping'}<Badge tone="warning">{t('sources.badge.scraping')}</Badge>{/if}
 		{#if src.capabilities.attribution_required}<Badge tone="info">{t('sources.badge.attribution')}</Badge>{/if}
 		{#if src.capabilities.experimental}<Badge tone="warning">{t('sources.badge.experimental')}</Badge>{/if}
 	{:else if column.key === 'adapter'}
 		<code class="mono">{src.adapter}</code>
+	{:else if column.key === 'type'}
+		<Badge tone={src.capabilities.access_type === 'scraping' ? 'warning' : 'info'}>
+			{src.capabilities.access_type === 'scraping' ? t('sources.type.scraping') : t('sources.type.api')}
+		</Badge>
 	{:else if column.key === 'enabled'}
 		<Switch
 			label={src.enabled ? t('common.active') : t('common.inactive')}
@@ -258,9 +328,17 @@
 			{src.auth_type === 'api_key' ? (src.has_api_key ? t('sources.cell.key_saved') : t('sources.cell.no_key')) : t('sources.cell.public')}
 		</Badge>
 	{:else if column.key === 'rate'}
-		{src.capabilities.rate_limit.requests > 0
-			? `${src.capabilities.rate_limit.requests}/${src.capabilities.rate_limit.period === 'day' ? t('sources.cell.day') : src.capabilities.rate_limit.period === 'hour' ? t('sources.cell.hour') : t('sources.cell.min')}`
-			: t('sources.cell.default')}
+		{rateLabel(src.capabilities)}
+	{:else if column.key === 'usage'}
+		<span class="usage" class:usage-full={src.usage_quota > 0 && src.usage_today >= src.usage_quota}>
+			{usageLabel(src)}
+		</span>
+		{#if src.capabilities.quota_unit === 'details' && src.details_used > 0}
+			<span class="cell-note">{t('sources.usage.details', { count: src.details_used })}</span>
+		{/if}
+	{:else if column.key === 'health'}
+		<Badge tone={healthTone(src.health)}>{healthLabel(src.health)}</Badge>
+		{#if src.health.last_error}<span class="cell-note">{src.health.last_error}</span>{/if}
 	{:else if column.key === 'actions'}
 		<div class="row-actions">
 			<Button variant="ghost" size="sm" loading={testingId === src.id} onclick={() => testSource(src.id)}>{t('common.test')}</Button>
@@ -289,6 +367,10 @@
 
 {#if status}
 	<Alert severity={status.kind}>{status.text}</Alert>
+{/if}
+
+{#if sources.some((src) => src.capabilities.access_type === 'scraping')}
+	<Alert severity="info">{t('sources.scraping_warning')}</Alert>
 {/if}
 
 <Card title={t('sources.title')} subtitle={t('sources.card_subtitle', { search: t('jobs.search_now') })}>
@@ -361,6 +443,15 @@
 	.mono {
 		font-family: var(--font-mono);
 		font-size: var(--text-mono);
+	}
+
+	.usage {
+		font-variant-numeric: tabular-nums;
+	}
+
+	.usage-full {
+		color: var(--color-warning);
+		font-weight: 600;
 	}
 
 	.row-actions {

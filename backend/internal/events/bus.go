@@ -24,6 +24,7 @@ const (
 	KindDiscoveryCompleted       = "discovery.completed"
 	KindDiscoveryFailed          = "discovery.failed"
 	KindSourceFetchFailed        = "source.fetch_failed"
+	KindSourceDegraded           = "source.degraded"
 	KindTaskCompleted            = "task.completed"
 	KindTaskFailed               = "task.failed"
 	KindTaskCancelled            = "task.cancelled"

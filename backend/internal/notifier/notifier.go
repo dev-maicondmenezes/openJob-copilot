@@ -339,6 +339,18 @@ func mapEvent(e events.Event) (notificationBuild, bool) {
 			i18nParams:       i18nParams(map[string]any{"source": source}),
 		}, true
 
+	case events.KindSourceDegraded:
+		source := metaStr(meta, "source")
+		return notificationBuild{
+			notificationType: "source_error",
+			severity:         events.SeverityWarning,
+			title:            "Fonte de vagas degradada",
+			body:             firstNonEmpty(e.Body, source),
+			link:             firstNonEmpty(e.Link, "/settings/sources"),
+			i18nKey:          "notifications.source.degraded",
+			i18nParams:       i18nParams(map[string]any{"source": source}),
+		}, true
+
 	case events.KindTaskCompleted:
 		typ := metaStr(meta, "task_type")
 		return notificationBuild{

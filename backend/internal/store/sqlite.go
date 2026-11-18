@@ -507,6 +507,136 @@ func (s *SQLiteStore) DeleteSource(ctx context.Context, id string) error {
 	return ensureRow(res)
 }
 
+// ---- source_daily_usage / source_health (CP14) --------------------------
+
+func (s *SQLiteStore) GetSourceDailyUsage(ctx context.Context, sourceID, day string) (SourceDailyUsage, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT source_id, day, used, details_used, updated_at
+		FROM source_daily_usage WHERE source_id = ? AND day = ?`, sourceID, day)
+	var u SourceDailyUsage
+	var updated string
+	if err := row.Scan(&u.SourceID, &u.Day, &u.Used, &u.DetailsUsed, &updated); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return SourceDailyUsage{SourceID: sourceID, Day: day}, ErrNotFound
+		}
+		return u, err
+	}
+	u.UpdatedAt, _ = parseUTC(updated)
+	return u, nil
+}
+
+// AddSourceDailyUsage atomically increments (or creates) the counter for a
+// source/day and returns the fresh row. A reset at midnight requires no job:
+// the new day simply has no row yet.
+func (s *SQLiteStore) AddSourceDailyUsage(ctx context.Context, sourceID, day string, usedDelta, detailsDelta int) (SourceDailyUsage, error) {
+	now := nowUTC()
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO source_daily_usage (source_id, day, used, details_used, updated_at)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(source_id, day) DO UPDATE SET
+			used = used + excluded.used,
+			details_used = details_used + excluded.details_used,
+			updated_at = excluded.updated_at`,
+		sourceID, day, usedDelta, detailsDelta, now)
+	if err != nil {
+		return SourceDailyUsage{}, err
+	}
+	return s.GetSourceDailyUsage(ctx, sourceID, day)
+}
+
+func (s *SQLiteStore) ListSourceDailyUsage(ctx context.Context, day string) ([]SourceDailyUsage, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT source_id, day, used, details_used, updated_at
+		FROM source_daily_usage WHERE day = ? ORDER BY source_id`, day)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []SourceDailyUsage
+	for rows.Next() {
+		var u SourceDailyUsage
+		var updated string
+		if err := rows.Scan(&u.SourceID, &u.Day, &u.Used, &u.DetailsUsed, &updated); err != nil {
+			return nil, err
+		}
+		u.UpdatedAt, _ = parseUTC(updated)
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+const sourceHealthCols = `source_id, status, consecutive_failures, COALESCE(backoff_until, ''), COALESCE(degraded_until, ''), COALESCE(last_error, ''), COALESCE(last_success_at, ''), updated_at`
+
+func scanSourceHealth(scan func(dest ...any) error) (SourceHealth, error) {
+	var h SourceHealth
+	var backoff, degraded, lastSuccess, updated string
+	if err := scan(&h.SourceID, &h.Status, &h.ConsecutiveFailures, &backoff, &degraded, &h.LastError, &lastSuccess, &updated); err != nil {
+		return h, err
+	}
+	if backoff != "" {
+		t, _ := parseUTC(backoff)
+		h.BackoffUntil = &t
+	}
+	if degraded != "" {
+		t, _ := parseUTC(degraded)
+		h.DegradedUntil = &t
+	}
+	if lastSuccess != "" {
+		t, _ := parseUTC(lastSuccess)
+		h.LastSuccessAt = &t
+	}
+	h.UpdatedAt, _ = parseUTC(updated)
+	return h, nil
+}
+
+func (s *SQLiteStore) GetSourceHealth(ctx context.Context, sourceID string) (SourceHealth, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+sourceHealthCols+` FROM source_health WHERE source_id = ?`, sourceID)
+	h, err := scanSourceHealth(row.Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		return SourceHealth{SourceID: sourceID, Status: "ok"}, ErrNotFound
+	}
+	return h, err
+}
+
+func (s *SQLiteStore) UpsertSourceHealth(ctx context.Context, h SourceHealth) error {
+	if h.Status == "" {
+		h.Status = "ok"
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO source_health (source_id, status, consecutive_failures, backoff_until, degraded_until, last_error, last_success_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(source_id) DO UPDATE SET
+			status = excluded.status,
+			consecutive_failures = excluded.consecutive_failures,
+			backoff_until = excluded.backoff_until,
+			degraded_until = excluded.degraded_until,
+			last_error = excluded.last_error,
+			last_success_at = excluded.last_success_at,
+			updated_at = excluded.updated_at`,
+		h.SourceID, h.Status, h.ConsecutiveFailures, nullableTime(h.BackoffUntil),
+		nullableTime(h.DegradedUntil), h.LastError, nullableTime(h.LastSuccessAt), nowUTC())
+	return err
+}
+
+func (s *SQLiteStore) ListSourceHealth(ctx context.Context) ([]SourceHealth, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+sourceHealthCols+` FROM source_health ORDER BY source_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []SourceHealth
+	for rows.Next() {
+		h, err := scanSourceHealth(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
 // ---- discovery_runs -----------------------------------------------------
 
 const discoveryRunCols = `id, started_at, COALESCE(completed_at, ''), status, stats, COALESCE(error_message, '')`
@@ -591,6 +721,15 @@ func parseUTC(v string) (time.Time, error) {
 		return t, nil
 	}
 	// modernc binds time.Time values using Go's String() layout; accept it so
-	// rows written that way still parse deterministically.
-	return time.Parse("2006-01-02 15:04:05.999999999 -0700 MST", v)
+	// rows written that way still parse deterministically. Two variants cover
+	// named zones ("-03 -03") and numeric fixed zones.
+	for _, layout := range []string{
+		"2006-01-02 15:04:05.999999999 -0700 MST",
+		"2006-01-02 15:04:05.999999999 -0700",
+	} {
+		if t, err := time.Parse(layout, v); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("store: cannot parse datetime %q", v)
 }

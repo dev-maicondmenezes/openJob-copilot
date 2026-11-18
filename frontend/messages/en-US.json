@@ -699,5 +699,21 @@
   "jobs.status_label.approved": "approved",
   "jobs.status_label.discarded": "discarded",
   "errors.application.invalid_status": "Invalid status",
-  "errors.settings.invalid_locale": "Unsupported locale"
+  "errors.settings.invalid_locale": "Unsupported locale",
+  "sources.col.type": "Type",
+  "sources.col.usage_today": "Usage today",
+  "sources.col.health": "Health",
+  "sources.cell.sec": "s",
+  "sources.type.api": "API",
+  "sources.type.scraping": "Scraping",
+  "sources.badge.scraping": "scraping",
+  "sources.health.ok": "ok",
+  "sources.health.degraded": "degraded",
+  "sources.health.blocked": "blocked",
+  "sources.usage.details": "{count} details today",
+  "sources.scraping_warning": "This source does not offer an API. openJob respects conservative limits so your access is never blocked.",
+  "notifications.source.degraded.title": "Job source degraded",
+  "notifications.source.degraded.body": "Source {source} was disabled for 24h after 3 consecutive failures.",
+  "tasks.type.discover": "Job search",
+  "jobs.flash.search_queued": "Search queued (position {position}). Track progress in Tasks."
 }

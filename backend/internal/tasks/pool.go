@@ -509,6 +509,8 @@ func humanType(typ string) string {
 		return "Extração de palavras-chave"
 	case TypeTailorResume:
 		return "Adaptação de currículo"
+	case TypeDiscoverSources:
+		return "Busca de vagas"
 	}
 	return typ
 }
@@ -537,6 +539,8 @@ func completedBody(typ string, meta map[string]any) string {
 		if count > 0 {
 			return fmt.Sprintf("%d palavras-chave extraídas do currículo.", count)
 		}
+	case TypeDiscoverSources:
+		return "Busca de vagas concluída."
 	}
 	return humanType(typ) + " concluída."
 }

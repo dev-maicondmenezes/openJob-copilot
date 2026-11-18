@@ -203,7 +203,6 @@ func TestPoolMaxAttemptsExhaustedFailsWithEvent(t *testing.T) {
 	}
 }
 
-
 func TestPoolCancelRunningPropagatesContext(t *testing.T) {
 	repo := openPoolStore(t)
 	h := &fakeHandler{typ: "slow", sleep: 10 * time.Second}

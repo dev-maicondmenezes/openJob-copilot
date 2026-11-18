@@ -19,6 +19,7 @@ const (
 	TypeScoreJob              = "score_job"
 	TypeExtractResumeKeywords = "extract_resume_keywords"
 	TypeTailorResume          = "tailor_resume"
+	TypeDiscoverSources       = "discover_sources" // CP14: queued discovery runs
 )
 
 // Handler runs one task type. Handlers MUST check ctx between steps: a

@@ -6,8 +6,10 @@ import (
 	"sync"
 )
 
-// Adapter is the common contract implemented by all automated job discovery sources.
-// Only sources offering public free APIs are registered. No webscraping is performed in this module.
+// Adapter is the common contract implemented by all automated job discovery
+// sources (CP6). CP14 also registers respectful scraping adapters; the
+// defensive controls live in Capabilities + the ratelimit package, so the
+// orchestrator stays source-agnostic.
 type Adapter interface {
 	Slug() string
 	Name() string
@@ -35,13 +37,28 @@ func NewRegistry() *Registry {
 	}
 }
 
-// NewDefaultRegistry instantiates a registry pre-loaded with all supported free API adapters.
+// NewDefaultRegistry instantiates a registry pre-loaded with every supported
+// adapter: the CP6 free-API remote boards, the CP14 LATAM API sources and the
+// CP14 respectful scraping sources.
 func NewDefaultRegistry() *Registry {
 	r := NewRegistry()
+	// CP6 remote/global APIs.
 	r.Register(NewHimalayasAdapter())
 	r.Register(NewRemotiveAdapter())
 	r.Register(NewJobicyAdapter())
 	r.Register(NewRemoteOKAdapter())
+	// CP14 LATAM APIs.
+	r.Register(NewGetOnBoardAdapter())
+	r.Register(NewTramposAdapter())
+	r.Register(NewGupyAdapter())
+	r.Register(NewManfredAdapter())
+	// CP14 scraping (defensive rate limiting + robots constraints).
+	r.Register(NewProgramathorAdapter())
+	r.Register(NewComputrabajoAdapter())
+	r.Register(NewBumeranAdapter())
+	r.Register(NewVagasAdapter())
+	r.Register(NewCathoAdapter())
+	r.Register(NewInfoJobsAdapter())
 	return r
 }
 

@@ -110,16 +110,28 @@ func (d *discoveryAPI) refreshResumeKeywords(w http.ResponseWriter, r *http.Requ
 }
 
 func (d *discoveryAPI) triggerDiscover(w http.ResponseWriter, r *http.Request) {
-	if d.orchestrator.IsRunning() {
-		writeJSON(w, http.StatusConflict, map[string]any{
-			"error":  "Já existe uma descoberta em andamento.",
-			"run_id": d.orchestrator.CurrentRunID(),
+	// CP14: every click becomes one durable task. The pool workers run them
+	// serially (DiscoverHandler mutex) and the UI tracks progress in /tasks.
+	if d.pool != nil {
+		task, err := d.pool.Enqueue(r.Context(), tasks.TypeDiscoverSources, []byte(`{}`), 5)
+		if err != nil {
+			d.logger.Error("enqueue discovery failed", "err", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao enfileirar busca de vagas"})
+			return
+		}
+		position, _ := d.repo.CountTasks(r.Context(), []string{"queued"}, tasks.TypeDiscoverSources)
+		writeJSON(w, http.StatusAccepted, map[string]any{
+			"task_id":        task.ID,
+			"status":         "queued",
+			"queue_position": position,
+			"running":        d.orchestrator.IsRunning(),
+			"run_id":         d.orchestrator.CurrentRunID(),
 		})
 		return
 	}
 
-	// Run in background goroutine so HTTP client receives immediate run ID
-	// and can poll / stream status
+	// Fallback for callers without the task pool (unit tests): run in a
+	// background goroutine so the HTTP client receives immediately.
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
@@ -129,21 +141,14 @@ func (d *discoveryAPI) triggerDiscover(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Give a moment for run record creation
 	for i := 0; i < 20; i++ {
 		if id := d.orchestrator.CurrentRunID(); id > 0 {
-			writeJSON(w, http.StatusAccepted, map[string]any{
-				"run_id": id,
-				"status": "running",
-			})
+			writeJSON(w, http.StatusAccepted, map[string]any{"run_id": id, "status": "running"})
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-
-	writeJSON(w, http.StatusAccepted, map[string]any{
-		"status": "running",
-	})
+	writeJSON(w, http.StatusAccepted, map[string]any{"status": "running"})
 }
 
 func (d *discoveryAPI) getDiscoveryStatus(w http.ResponseWriter, r *http.Request) {
@@ -151,6 +156,15 @@ func (d *discoveryAPI) getDiscoveryStatus(w http.ResponseWriter, r *http.Request
 	runID := d.orchestrator.CurrentRunID()
 
 	ctx := r.Context()
+	queuedRuns := 0
+	if d.pool != nil {
+		if n, err := d.repo.CountTasks(ctx, []string{"queued", "running"}, tasks.TypeDiscoverSources); err == nil {
+			queuedRuns = n
+			if n > 0 {
+				running = true
+			}
+		}
+	}
 	latest, err := d.repo.LatestDiscoveryRun(ctx)
 	var latestData any
 	if err == nil {
@@ -171,9 +185,10 @@ func (d *discoveryAPI) getDiscoveryStatus(w http.ResponseWriter, r *http.Request
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"running":    running,
-		"run_id":     runID,
-		"latest_run": latestData,
+		"running":     running,
+		"run_id":      runID,
+		"queued_runs": queuedRuns,
+		"latest_run":  latestData,
 	})
 }
 

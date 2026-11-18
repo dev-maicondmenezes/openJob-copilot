@@ -1,136 +1,169 @@
-# Checkpoint 14 — Expansão multi-mercado via APIs públicas e privadas (PT-BR e ES-419)
+# Checkpoint 14  — Expansão multi-mercado: APIs, scraping ético e rate limiting defensivo
 
-> **Princípio norteador:** este checkpoint segue a diretriz da CP6 revisada. **Só entram fontes com API pública e/ou privada.** Fontes que exigem scraping de HTML (Programathor, Computrabajo, Bumeran) **ficam fora do escopo** e são registradas como backlog no §7. A arquitetura de `sources` + `capabilities` + registry de adapters da CP6 é preservada; o que muda é apenas o **conjunto de adapters implementados** e a **generalização dos campos regionais**.
+> **Princípio norteador :** o checkpoint mantém a arquitetura de `sources` + `capabilities` + registry de adapters do CP6. A mudança é que **fontes sem API passam a ser incluídas**, desde que implementadas com um **rate limiter persistente e conservador por fonte**, projetado para nunca exceder os limites observáveis da plataforma. O scraping deixa de ser "backlog" e passa a ser **cidadão de primeira classe**, com as mesmas garantias de isolamento de falhas e observabilidade das fontes com API.
 
 ---
 
-## 1. Fontes com API — lista qualificada
+## 1. Fontes qualificadas (APIs + scraping)
 
-| Fonte | Tipo de API | Documentação | Autenticação | Locale / Região | Observações críticas |
+### 1.1 Fontes com API (inalteradas)
+
+| Fonte | Tipo | Autenticação | Locale / Região |
+|---|---|---|---|
+| **Get on Board** | Pública (zero-auth) + Privada (Bearer) | Nenhuma (pública) | `es` / `pt` / `en`; LATAM tech |
+| **Trampos** | API REST (JSON/XML) | Zero-auth (aparente) | `pt-BR` / BR |
+| **Gupy** | Pública (zero-auth) + Privada (Bearer) | Nenhuma (pública) | `pt-BR` / BR |
+| **getManfred** | Pública (zero-auth) | Nenhuma | `es` / ES + LATAM |
+
+### 1.2 Fontes sem API — incluídas nesta revisão
+
+| Fonte | Tipo de acesso | Locale / Região | Modalidade | Rate limit observado / conservador | Estratégia de proteção |
 |---|---|---|---|---|---|
-| **Get on Board** | **Pública** (zero-auth) + **Privada** (Bearer) | OpenAPI 3.0.3 em `https://www.getonbrd.com/api-doc.html` | Pública: nenhuma. Privada: `Authorization: Bearer <api_key>` | `es` / `pt` / `en` (param `lang`); LATAM tech | API pública expõe categorias, empresas, vagas publicadas e busca (`/api/v0/search/jobs`). Paginação `per_page` máx. 120. Sandbox disponível. |
-| **Trampos** | **API REST** (JSON/XML) | Sem documentação pública formal; uso evidenciado em testes técnicos e projetos open-source | Aparentemente **zero-auth** para listagem pública | `pt-BR` / BR | Paginação `?page=N`; listagem completa (~270 vagas) sem filtro textual. A busca textual (`tr=`) é “literal demais” — o filtro precisa ser feito no cliente (keyword filter da CP6). **Risco:** API sem contrato público estável; tratar como fonte de prioridade média e monitorar quebras. |
-| **Gupy** | **Pública** (zero-auth) + **Privada** (Bearer) | `developers.gupy.io` (API privada); endpoint público: `employability-portal.gupy.io/api/v1/jobs` | Pública: nenhuma. Privada: Bearer Token gerado em Setup → Configurações Avançadas | `pt-BR` / BR | API pública busca **board-wide** (todas as empresas), keyed by keyword. É a fonte com maior cobertura de empresas BR. Para o openJob, o **endpoint público é suficiente** para discovery. |
-| **getManfred** | **Pública** (zero-auth) | Sem página de doc dedicada; feed evidenciado em projetos open-source | Nenhuma | `es` (tech) / Espanha + LATAM | Feed **board-wide** em uma única chamada: `GET https://www.getmanfred.com/api/v2/public/offers`. A API **rejeita chamadas sem `lang`** (EN ou ES). Sem paginação — o catálogo inteiro vem de uma vez. Cobertura forte de vagas em espanhol com faixa salarial publicada. |
+| **Programathor** | Scraping HTML | `pt-BR` / BR | Remoto, híbrido, presencial | Sem `Crawl-delay` público documentado; adotar **1 req a cada 2s** como piso seguro | Rate limiter por fonte + cache de página (TTL 6h) |
+| **Computrabajo** | Scraping HTML (server-rendered) | `es-419` / 19 países LATAM | Remoto, híbrido, presencial | `robots.txt` desautoriza parâmetros de filtro (`by=`, `pubdate=`, `sal=`); paginação (`p=`) permitida. **1 req/s** para listagem; **1 req/s** para detalhe | Filtro client-side após fetch (sem usar parâmetros desautorizados) |
+| **Bumeran** | Scraping HTML + API interna (`POST /api/avisos/searchV2`) | `es-419` / AR, PE, MX, VE | Remoto, híbrido, presencial | **1 req/s**; máximo de **1.200 vagas por execução**. `robots.txt` desautoriza apenas `recientes=` e `relevantes=`, não a API interna | Teto de itens por run + rate limiter |
+| **Vagas.com.br** | Scraping HTML | `pt-BR` / BR | Remoto, híbrido, presencial | **2s entre requests** na listagem; **~16–20 requests de detalhe por IP por dia** antes de ban de ~24h. `robots.txt` desautoriza `/vagas/pesquisas` | **Limite diário rígido** de detalhes; listagem sem detalhe (card já traz título/empresa) |
+| **Catho** | Scraping HTML | `pt-BR` / BR | Remoto, híbrido, presencial | Pausa entre páginas; respeitar `robots.txt`. **1 req/s** conservador | Rate limiter + pausa entre páginas |
+| **InfoJobs** | Scraping HTML | `pt-BR` / BR (e ES) | Remoto, híbrido, presencial | **2s entre requests**; bloqueio suave observado após 5 páginas em alguns cenários. **1 req/s** funciona em ~75 requests | Rate limiter + backoff exponencial em 429/403 |
 
-> **Por que estas e não outras?** Programathor, Computrabajo e Bumeran **não têm API pública documentada** — dependem de scraping de HTML ou de serviços pagos de terceiros (Apify). Incluí-las violaria a diretriz da CP6 revisada. A **Get on Board** é a única com API pública + privada formalmente documentada e com OpenAPI; **Trampos** e **Gupy** têm APIs REST públicas usadas pela comunidade; **getManfred** é um feed JSON público zero-auth.
+> **Nota sobre o `robots.txt`:** nenhuma das fontes acima proíbe explicitamente o acesso às páginas públicas de listagem de vagas. Onde há restrição (ex.: `pubdate=` no Computrabajo, `/vagas/pesquisas` no Vagas.com.br), o adapter **não utiliza** os caminhos ou parâmetros desautorizados. A coleta ocorre apenas sobre conteúdo público, sem login e sem acessar áreas restritas.
 
 ---
 
-## 2. Modelo de dados — generalização (aditivo à CP6)
+## 2. Modelo de rate limiting — a peça central da revisão
 
-### 2.1 Expansão de `sources`
+O problema não é apenas "qual o limite", mas **como garantir que o usuário possa clicar "Buscar agora" quantas vezes quiser sem que o app seja bloqueado**. A solução é um **rate limiter persistente e hierárquico por fonte**, com três camadas:
 
-| Coluna nova | Tipo | Descrição |
+### 2.1 Camada 1 — Limite por requisição (ritmo)
+
+Cada adapter declara em `capabilities`:
+
+```json
+"rate_limit": {
+  "requests": 1,
+  "period": "second",
+  "strategy": "token_bucket"
+}
+```
+
+O orquestrador usa `golang.org/x/time/rate` com um **bucket por fonte**. Requisições são enfileiradas e executadas no ritmo declarado, **independentemente de quantos cliques** o usuário deu. Se o usuário clicar 10 vezes, o orquestrador enfileira 10 execuções; o rate limiter as serializa no ritmo seguro.
+
+| Fonte | `requests` | `period` | Estratégia |
+|---|---|---|---|
+| Programathor | 1 | 2s | Token bucket |
+| Computrabajo | 1 | 1s | Token bucket |
+| Bumeran | 1 | 1s | Token bucket |
+| Vagas.com.br | 1 | 2s | Token bucket + **limite diário** (ver 2.2) |
+| Catho | 1 | 1s | Token bucket |
+| InfoJobs | 1 | 2s | Token bucket + backoff em 429 |
+
+### 2.2 Camada 2 — Limite por execução (volume)
+
+Além do ritmo, cada fonte tem um **teto de itens por execução de discovery** (`max_results_per_run`). Isso evita que uma única execução esgote a cota diária.
+
+| Fonte | `max_results_per_run` | Justificativa |
 |---|---|---|
-| `locale` | TEXT | `pt-BR`, `es-419`, `en-US` |
-| `regions` | TEXT (JSON) | `["BR"]`, `["LATAM"]`, `["ES"]` |
-| `supported_modalities` | TEXT (JSON) | `["remote","hybrid","onsite"]` |
-| `supported_contract_types` | TEXT (JSON) | `["clt","pj","freelance","full-time"]` |
-| `supported_currencies` | TEXT (JSON) | `["BRL"]`, `["MXN","ARS","CLP"]`, `["EUR"]` |
+| Computrabajo | 500 | Listagem completa de um país em ~14 min a 1 req/s; 500 é conservador |
+| Bumeran | 1.200 | Limite observado na fonte |
+| Vagas.com.br | 200 (listagem) + **0 detalhes** | Detalhes são limitados a ~20/dia; a listagem já traz título/empresa |
+| Catho | 300 | Pausa entre páginas; volume moderado |
+| InfoJobs | 200 | Evita bloqueio após 5 páginas |
+| Programathor | 200 | Piso seguro para site menor |
 
-O orquestrador filtra `sources` por `regions` e `locale` **antes** de executar discovery, evitando chamadas desnecessárias. As `capabilities` da CP6 (`supports_keyword_search`, `rate_limit`, `max_results_per_run`, `attribution_required`) continuam valendo e são declaradas por cada adapter.
+### 2.3 Camada 3 — Limite diário persistente (a garantia final)
 
-### 2.2 Expansão de `jobs` (aditivo)
+Para fontes com limite diário conhecido (**Vagas.com.br** e **InfoJobs**), o orquestrador mantém um **contador persistente em SQLite** (`source_daily_usage`):
 
-| Coluna nova | Tipo | Descrição |
+| Fonte | Limite diário | Comportamento ao atingir |
 |---|---|---|
-| `modality` | TEXT | `remote` \| `hybrid` \| `onsite` |
-| `contract_type` | TEXT | `clt`, `pj`, `freelance`, `full-time`, `other` |
-| `salary_min` / `salary_max` | REAL (nullable) | Valores na moeda original (sem conversão) |
-| `salary_currency` | TEXT (nullable) | ISO 4217: `BRL`, `MXN`, `ARS`, `CLP`, `EUR`, `USD` |
-| `salary_period` | TEXT (nullable) | `month`, `year`, `hour` |
+| Vagas.com.br | **20 requisições de detalhe** por IP/dia | Adapter para de buscar detalhes; usa apenas os dados da listagem. O usuário vê "limite diário atingido — detalhes disponíveis amanhã". |
+| InfoJobs | 75 requisições (conservador) | Adapter retorna o que já coletou e enfileira o restante para o dia seguinte. |
 
-> **Sem conversão de moeda nesta CP.** O `score_fit` continua baseado em texto; a UI exibe o salário com `Intl.NumberFormat` da CP13.
+> **Contador persistente:** o uso é registrado em SQLite com `date` (dia local) e `source_id`. Mesmo que o app reinicie, o contador não zera. O usuário pode ver o consumo em `/settings/sources` (coluna "Uso hoje").
 
----
+### 2.4 Backoff e circuit breaker
 
-## 3. Tarefas
-
-### 3.1 Adapters — detalhamento por fonte
-
-Cada adapter implementa a interface da CP6 (`Slug`, `Capabilities`, `Fetch`) e declara seu schema de configuração (para a UI de `/settings/sources` renderizar dinamicamente).
-
-**Get on Board:**
-- **Pública (discovery):** `GET https://www.getonbrd.com/api/v0/categories/{slug}/jobs?page=N&per_page=120&lang={lang}`. Também há `GET /api/v0/search/jobs` para busca textual.
-- **Privada (não usada nesta CP):** requer Bearer token de empresa; só faz sentido se o openJob evoluir para integração com ATS (backlog).
-- **`capabilities`:** `supports_keyword_search: true` (via `/search/jobs`); `supports_pagination: true`; `max_results_per_run: 120`; `rate_limit: {60, "minute"}` (conservador); `attribution_required: true`.
-
-**Trampos:**
-- **Endpoint:** API REST em JSON ou XML, paginação `?page=N`. A listagem completa (~270 vagas) é obtida **sem termo de busca**; a busca textual (`tr=`) é “literal demais” e tende a perder resultados.
-- **`capabilities`:** `supports_keyword_search: false` → o **keyword filter da CP6 roda no cliente**; `supports_pagination: true`; `max_results_per_run: 300`; `rate_limit: {60, "minute"}`; `attribution_required: true`.
-- **Risco:** ausência de contrato público → marcar `experimental: true` e tratar falha de forma isolada (agregador tolerante da CP6).
-
-**Gupy:**
-- **Endpoint público:** `GET https://employability-portal.gupy.io/api/v1/jobs?keyword={termo}` — busca board-wide, sem autenticação. É a fonte de maior cobertura de empresas BR.
-- **`capabilities`:** `supports_keyword_search: true`; `supports_pagination: true` (via offset/limit, validar no adapter); `max_results_per_run: 200`; `rate_limit: {60, "minute"}`; `attribution_required: false` (API pública sem exigência explícita).
-
-**getManfred:**
-- **Endpoint:** `GET https://www.getmanfred.com/api/v2/public/offers?lang=ES` (ou `lang=EN`). Retorna o catálogo inteiro em uma chamada, sem paginação.
-- **`capabilities`:** `supports_keyword_search: false` → keyword filter no cliente; `supports_pagination: false`; `max_results_per_run: null` (sem teto — o feed é único); `rate_limit: {10, "minute"}` (conservador); `attribution_required: true` (boa prática).
-
-### 3.2 Orquestração multi-mercado (inalterada conceitualmente)
-
-- `POST /api/jobs/discover` aceita `regions`, `locales` e `modalities` opcionais; o orquestrador filtra `sources` habilitadas antes de executar.
-- Para fontes com `supports_keyword_search: false` (Trampos, getManfred), o **keyword filter da CP6** é aplicado client-side após o fetch.
-- O **filtro de currículo da CP6** (pré-LLM) continua igual, operando no idioma da vaga. O usuário pode cadastrar `resume_keywords` em PT e ES.
-- A **fila de tasks da CP10** (`score_job`) é reutilizada sem mudanças; o payload passa a incluir `modality` e `contract_type` para o score considerar fit de modalidade.
-
-### 3.3 UI de configuração de fontes (`/settings/sources`)
-
-Expansão do CRUD da CP6 com:
-- Filtros por **Região**, **Locale** e **Modalidade** no topo da lista.
-- Colunas adicionais: Locale, Regiões, Modalidades, Contratos, Moedas.
-- Formulário gerado a partir do **schema declarado pelo adapter** (como `capabilities` na CP6), incluindo `locale`, `regions`, `supported_modalities`, `supported_contract_types`, `supported_currencies`.
-- `POST /api/sources/{id}/test` retorna amostra de vagas **no idioma/região da fonte**, com modalidade e salário (se disponível), para validação antes de habilitar.
-- Fontes `experimental: true` (Trampos) exibem *badge* de aviso.
-
-### 3.4 Filtros adaptados a múltiplos idiomas
-
-- **Keyword filter (CP6):** sem tradução automática. O usuário cadastra termos em PT (`desenvolvedor backend`) e ES (`desarrollador backend`). A UI de `/settings/discovery` exibe aviso explícito.
-- **Resume filter (CP6):** as `resume_keywords` podem ser extraídas em múltiplos idiomas se o currículo tiver seções em PT e EN. O `min_matches` e `match_mode` continuam iguais.
+- **Backoff exponencial:** em `429` ou `403`, o adapter para imediatamente e agenda retry em 1h, 4h, 24h. O rate limiter **não** é contornado.
+- **Circuit breaker por fonte:** se uma fonte falhar 3 vezes consecutivas (erro de parsing, bloqueio, timeout), ela é marcada como `degraded` e **não é executada** por 24h. O usuário é notificado no sino (CP10) e em `/settings/sources`.
+- **Isolamento:** falha de uma fonte **nunca** derruba as demais (agregador tolerante do CP6).
 
 ---
 
-## 4. Critérios de verificação
+## 3. Estratégia de scraping por fonte (sem violar `robots.txt`)
 
-- Em `/settings/sources`, habilitar **Get on Board**, **Gupy**, **getManfred** e **Trampos** (experimental). Rodar “Buscar agora” → vagas das quatro fontes aparecem, com `locale`, `regions`, `modality` e `salary_currency` corretos.
-- Vagas da **Gupy** têm `locale = "pt-BR"` e `salary_currency = "BRL"` (quando informado); vagas da **Get on Board** em CLP/MXN/ARS têm a moeda correta; vagas da **getManfred** têm `salary_currency = "EUR"` ou `"USD"` (conforme a fonte). Se a fonte não informar salário, `salary_currency` é `NULL` (sem inferência).
-- Filtrar discovery por `regions = ["BR"]` → apenas **Gupy** e **Trampos** são executadas; Get on Board (LATAM) e getManfred (ES) não são chamadas.
-- Cadastrar palavras-chave em PT (`desenvolvedor backend`) e ES (`desarrollador backend`). Rodar discovery com **Get on Board** (`supports_keyword_search: true`) → os termos são enviados na chamada. Rodar com **getManfred** (`supports_keyword_search: false`) → o filtro roda no cliente e vagas com “desarrollador backend” passam.
-- **Trampos** (experimental) falhando (API mudou, timeout) → as demais fontes continuam; erro aparece na UI da fonte e no sino de notificações (CP10), sem derrubar o discovery.
-- Deduplicação continua funcionando entre fontes (mesma URL não duplica, mesmo que uma fonte seja PT e outra ES).
-- UI de `/settings/sources` exibe filtros de região/locale e colunas de modalidade/moeda; o formulário de criação renderiza os campos a partir do schema do adapter.
-- Nenhuma regressão nos fluxos da CP6 (vagas remotas em EN continuam funcionando) e da CP13 (i18n da UI).
+| Fonte | O que é coletado | O que **não** é coletado | Estratégia |
+|---|---|---|---|
+| **Programathor** | Listagem pública de vagas (título, empresa, URL, modalidade) | Páginas de detalhe além do necessário | Cache de listagem (TTL 6h); detalhe sob demanda |
+| **Computrabajo** | Cards de listagem (título, empresa, local, salário se presente) | Parâmetros de filtro desautorizados (`by=`, `pubdate=`, `sal=`) | Filtro client-side após fetch; detalhe só quando o usuário clica "Saiba mais…" |
+| **Bumeran** | API interna `searchV2` (título, empresa, modalidade, salário) | Páginas `recientes=` e `relevantes=` (desautorizadas) | Rate limiter 1 req/s; teto de 1.200 |
+| **Vagas.com.br** | Listagem (`/vagas-de-?pagina=N`) — título, empresa | `/vagas/pesquisas` (desautorizado) | **Sem detalhe** na maioria dos casos; detalhe só com cota diária |
+| **Catho** | Páginas públicas de busca | Páginas que exijam login | Pausa entre páginas; rate limiter 1 req/s |
+| **InfoJobs** | Listagem e detalhe públicos | Áreas autenticadas | Rate limiter 2s; backoff em 429 |
 
 ---
 
-## 5. Registrar
+## 4. Tarefas revisadas
 
-- **ADR `0022-multi-market-source-model.md`** — generalização de `sources` e `jobs` com `locale`, `regions`, `supported_modalities`, `supported_currencies`, `modality`, `contract_type`, `salary_*`. Justificativa: manter a arquitetura declarativa da CP6; a UI se adapta ao schema do adapter. Alternativa rejeitada: criar um segundo pipeline só para vagas locais.
-- **ADR `0023-fontes-api-first-para-latam.md`** — decisão de **rejeitar fontes sem API** (Programathor, Computrabajo, Bumeran) nesta CP, mantendo a diretriz da CP6 revisada. Justificativa: APIs são mais estáveis que HTML; o custo de manutenção de scrapers frágeis não se paga nesta fase. Scraping fica como backlog se a cobertura de APIs for insuficiente.
-- **ADR `0024-keywords-multilingues-sem-traducao-automatica.md`** — filtro de palavras-chave não traduz automaticamente; o usuário cadastra termos em PT, EN e ES. Justificativa: evitar custo de LLM por discovery e latência; manter previsibilidade. Tradução automática fica como backlog (opt-in).
-- **Testes:**
-  - Normalização de `modality` e `contract_type` para PT e ES.
-  - Extração de salário com moedas locais (BRL, MXN, ARS, CLP, EUR) e `NULL` quando ausente.
-  - Deduplicação entre fontes de locales diferentes.
-  - Keyword filter com termos em ES e PT (boundary de palavra) para fontes com `supports_keyword_search: false` (Trampos, getManfred).
-  - CRUD de fontes com novos campos declarativos.
-  - Regressão da CP6: vagas remotas em EN continuam passando.
+### 4.1 Adapters (expansão)
+
+- **Adapters de API (4):** Get on Board, Trampos, Gupy, getManfred — mantidos do CP14 original.
+- **Adapters de scraping (6):** Programathor, Computrabajo, Bumeran, Vagas.com.br, Catho, InfoJobs — **novos**.
+- **Interface comum** (CP6): todos implementam `Slug`, `Capabilities`, `Fetch`.
+- **`Capabilities` estendidas:** cada adapter declara `rate_limit` (ritmo), `max_results_per_run` (volume), `requires_daily_quota` (bool), `daily_quota` (int), `robots_disallowed_paths` (lista de paths que o adapter **não** deve acessar).
+
+### 4.2 Rate limiter central (`internal/discovery/ratelimit/`)
+
+- **Token bucket por fonte** (`golang.org/x/time/rate`), configurado a partir de `capabilities.rate_limit`.
+- **Contador diário persistente** (`source_daily_usage`), com reset à meia-noite local.
+- **Backoff exponencial** em `429`/`403`, com estado por fonte.
+- **Circuit breaker** com estado `degraded` persistido.
+
+### 4.3 UI de configuração de fontes (`/settings/sources`)
+
+- **Colunas adicionais:** "Tipo" (API / Scraping), "Rate limit" (ex.: "1 req/2s"), "Uso hoje" (ex.: "12/20"), "Saúde" (ok / degraded / bloqueada).
+- **Badge de aviso** para fontes de scraping: "Esta fonte não oferece API. O openJob respeita limites conservadores para não bloquear seu acesso."
+- **Contador diário visível:** o usuário vê quanto da cota diária já foi consumida.
+- **Teste de fonte** (`POST /api/sources/{id}/test`): executa **1 requisição** e valida o parsing, sem consumir cota significativa.
+
+### 4.4 Orquestração
+
+- `POST /api/jobs/discover` enfileira a execução de todas as fontes habilitadas, **respeitando os rate limiters**.
+- Se o usuário clicar "Buscar agora" 5 vezes seguidas, as 5 execuções são **enfileiradas**; o rate limiter as serializa. O usuário vê o progresso na fila de tarefas (CP10).
+- **Prioridade:** fontes com API são executadas primeiro (mais rápidas); scraping entra depois, no ritmo permitido.
+
+---
+
+## 5. Critérios de verificação s
+
+- **Rate limiting sob cliques repetidos:** clicar "Buscar agora" 10 vezes seguidas → as 10 execuções são enfileiradas; nenhuma fonte ultrapassa seu `rate_limit`; o usuário vê a fila em `/tasks`; nenhum bloqueio é disparado.
+- **Contador diário (Vagas.com.br):** executar discovery repetidamente até consumir 20 detalhes → o adapter para de buscar detalhes e informa "limite diário atingido"; no dia seguinte, o contador zera e os detalhes voltam.
+- **`robots.txt` respeitado:** verificar que o adapter do Computrabajo **não** envia `by=`, `pubdate=` ou `sal=`; que o adapter do Vagas.com.br **não** acessa `/vagas/pesquisas`; que o adapter do Bumeran **não** acessa `recientes=`/`relevantes=`.
+- **Backoff:** simular `429` de uma fonte → o adapter para, agenda retry e não afeta as demais.
+- **Circuit breaker:** simular 3 falhas consecutivas → a fonte fica `degraded` por 24h; o usuário é notificado.
+- **Isolamento:** uma fonte de scraping falhando (HTML mudou) → as fontes de API continuam funcionando; o erro aparece na UI da fonte.
+- **UI:** a coluna "Uso hoje" reflete o contador diário; o badge de scraping está visível.
+- **Regressão:** as 4 fontes de API do CP14 original continuam funcionando.
+
+---
+
+## 6. ADRs e riscos s
+
+- **ADR `0023-fontes-scraping-rate-limit-defensivo.md`** — substitui o ADR `0023-fontes-api-first-para-latam.md` do CP14 original. Decisão: incluir fontes sem API, desde que com rate limiter persistente, contador diário e respeito a `robots.txt`. Justificativa: a cobertura de mercado é incompleta sem essas fontes; o risco de bloqueio é mitigado por design, não por exclusão.
+- **ADR `0025-rate-limiter-hierarquico.md`** — três camadas (ritmo + volume + cota diária) com persistência em SQLite. Justificativa: o clique repetido do usuário não pode violar os limites da fonte; a persistência garante que reinícios não zerem o contador.
 - **Riscos anotados:**
-  - **Trampos sem contrato público:** API sem documentação formal; tratar como `experimental`, com testes de contrato contra fixture e monitoramento de falhas. Se quebrar, isolar (agregador tolerante) e notificar.
-  - **getManfred sem paginação:** o catálogo inteiro vem em uma chamada; se crescer demais, pode estourar timeout ou memória. Monitorar tamanho da resposta e adicionar `max_results_per_run` se necessário.
-  - **Gupy privada vs pública:** o openJob usa apenas a **API pública zero-auth** para discovery. A API privada (Bearer) exigiria credenciais de empresa — fora do escopo.
-  - **Termos regionais de contrato:** “PJ” e “CLT” são específicos do BR; mapeamento documentado no glossário (CP13).
-  - **Sem conversão de moeda:** salários exibidos na moeda original; `score_fit` não usa salário.
+  - **HTML instável:** mudanças de layout quebram o parsing. Mitigação: testes de contrato contra fixtures; circuit breaker isola a falha.
+  - **Bloqueio por IP:** mesmo com rate limit, um IP residencial pode ser bloqueado se a fonte detectar padrão de scraping. Mitigação: o rate limiter é conservador (mais lento que o necessário); o usuário é avisado; não há tentativa de contornar bloqueios com proxies (isso violaria o princípio local-first e a ética de scraping).
+  - **Cota diária do Vagas.com.br:** 20 detalhes/dia é um limite duro; o adapter prioriza a listagem (que já traz título/empresa) e usa detalhe apenas quando o usuário clica "Saiba mais…".
 
 ---
 
-## 6. Fora de escopo (deliberadamente adiado)
+## 7. Fora de escopo 
 
-- **Fontes sem API pública** (Programathor, Computrabajo, Bumeran, Vagas.com.br) — backlog; exigiriam scraping de HTML (`golang.org/x/net/html`) e violariam a diretriz “API-first” desta CP.
-- **API privada da Get on Board** — só faz sentido para integração com ATS (backlog).
-- **Tradução automática de keywords** — opt-in futuro; nesta CP o usuário cadastra termos equivalentes.
-- **Conversão de moeda** — salários na moeda original.
-- **Cobertura de todos os países LATAM** — Get on Board cobre LATAM tech; getManfred cobre ES/LATAM; Gupy cobre BR. Países sem API pública ficam para expansão futura.
+- **Proxies rotativos / impersonation de browser** — o openJob é local-first e não tenta contornar bloqueios; usa apenas HTTP simples com User-Agent identificável.
 - **Automação de candidatura** — mantida proibida (spec §3.3).
+- **API privada da Get on Board / Gupy** — só faz sentido para integração com ATS (backlog).
+- **Tradução automática de keywords** — opt-in futuro.
+- **Conversão de moeda** — salários na moeda original.
+- **Cobertura de todos os países LATAM** — as fontes de scraping cobrem BR e principais mercados ES; países menores ficam para expansão futura se necessário.
+
+---

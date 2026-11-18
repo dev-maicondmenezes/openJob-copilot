@@ -31,6 +31,16 @@ func registerSources(r chi.Router, s *sourcesAPI) {
 	r.Post("/sources/{id}/test", s.testSource)
 }
 
+// sourceHealthResponse is the CP14 persisted circuit-breaker state surfaced
+// in /settings/sources.
+type sourceHealthResponse struct {
+	Status              string `json:"status"` // ok | backoff | degraded | blocked
+	ConsecutiveFailures int    `json:"consecutive_failures"`
+	BackoffUntil        string `json:"backoff_until,omitempty"`
+	DegradedUntil       string `json:"degraded_until,omitempty"`
+	LastError           string `json:"last_error,omitempty"`
+}
+
 type sourceResponse struct {
 	ID           string                 `json:"id"`
 	Name         string                 `json:"name"`
@@ -42,6 +52,13 @@ type sourceResponse struct {
 	Capabilities discovery.Capabilities `json:"capabilities"`
 	CreatedAt    string                 `json:"created_at"`
 	UpdatedAt    string                 `json:"updated_at"`
+
+	// CP14 runtime state: today's quota consumption + health.
+	UsageToday  int                  `json:"usage_today"`
+	UsageQuota  int                  `json:"usage_quota"`
+	UsageUnit   string               `json:"usage_unit"`
+	DetailsUsed int                  `json:"details_used"`
+	Health      sourceHealthResponse `json:"health"`
 }
 
 func (s *sourcesAPI) toSourceResponse(src store.Source) sourceResponse {
@@ -50,6 +67,10 @@ func (s *sourcesAPI) toSourceResponse(src store.Source) sourceResponse {
 		if adapter, ok := s.orchestrator.Registry().Get(src.Adapter); ok {
 			caps = adapter.DefaultCapabilities()
 		}
+	}
+	unit := caps.QuotaUnit
+	if unit == "" {
+		unit = "requests"
 	}
 	return sourceResponse{
 		ID:           src.ID,
@@ -62,7 +83,53 @@ func (s *sourcesAPI) toSourceResponse(src store.Source) sourceResponse {
 		Capabilities: caps,
 		CreatedAt:    src.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:    src.UpdatedAt.Format(time.RFC3339),
+		UsageQuota:   caps.DailyQuota,
+		UsageUnit:    unit,
+		Health:       sourceHealthResponse{Status: "ok"},
 	}
+}
+
+// applyRuntime decorates a response with the persistent usage/health state.
+func (s *sourcesAPI) applyRuntime(resp *sourceResponse, usage store.SourceDailyUsage, health store.SourceHealth) {
+	resp.DetailsUsed = usage.DetailsUsed
+	if resp.UsageUnit == "details" {
+		resp.UsageToday = usage.DetailsUsed
+	} else {
+		resp.UsageToday = usage.Used
+	}
+	if health.Status == "" {
+		health.Status = "ok"
+	}
+	resp.Health = sourceHealthResponse{
+		Status:              health.Status,
+		ConsecutiveFailures: health.ConsecutiveFailures,
+		LastError:           health.LastError,
+	}
+	if health.BackoffUntil != nil {
+		resp.Health.BackoffUntil = health.BackoffUntil.Format(time.RFC3339)
+	}
+	if health.DegradedUntil != nil {
+		resp.Health.DegradedUntil = health.DegradedUntil.Format(time.RFC3339)
+	}
+}
+
+func (s *sourcesAPI) runtimeMaps(ctx context.Context) (map[string]store.SourceDailyUsage, map[string]store.SourceHealth) {
+	usage, _ := s.orchestrator.Limiter().UsageMap(ctx)
+	health, _ := s.orchestrator.Limiter().HealthMap(ctx)
+	if usage == nil {
+		usage = map[string]store.SourceDailyUsage{}
+	}
+	if health == nil {
+		health = map[string]store.SourceHealth{}
+	}
+	return usage, health
+}
+
+func (s *sourcesAPI) sourceWithRuntime(ctx context.Context, src store.Source) sourceResponse {
+	resp := s.toSourceResponse(src)
+	usage, health := s.runtimeMaps(ctx)
+	s.applyRuntime(&resp, usage[src.ID], health[src.ID])
+	return resp
 }
 
 func (s *sourcesAPI) listSources(w http.ResponseWriter, r *http.Request) {
@@ -73,9 +140,12 @@ func (s *sourcesAPI) listSources(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	usageMap, healthMap := s.runtimeMaps(r.Context())
 	res := make([]sourceResponse, 0, len(sources))
 	for _, src := range sources {
-		res = append(res, s.toSourceResponse(src))
+		resp := s.toSourceResponse(src)
+		s.applyRuntime(&resp, usageMap[src.ID], healthMap[src.ID])
+		res = append(res, resp)
 	}
 	writeJSON(w, http.StatusOK, res)
 }
@@ -174,10 +244,10 @@ func (s *sourcesAPI) createSource(w http.ResponseWriter, r *http.Request) {
 
 	saved, err := s.repo.GetSource(r.Context(), req.ID)
 	if err != nil {
-		writeJSON(w, http.StatusCreated, s.toSourceResponse(src))
+		writeJSON(w, http.StatusCreated, s.sourceWithRuntime(r.Context(), src))
 		return
 	}
-	writeJSON(w, http.StatusCreated, s.toSourceResponse(saved))
+	writeJSON(w, http.StatusCreated, s.sourceWithRuntime(r.Context(), saved))
 }
 
 type updateSourceRequest struct {
@@ -256,7 +326,7 @@ func (s *sourcesAPI) updateSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, s.toSourceResponse(src))
+	writeJSON(w, http.StatusOK, s.sourceWithRuntime(r.Context(), src))
 }
 
 func (s *sourcesAPI) deleteSource(w http.ResponseWriter, r *http.Request) {
@@ -305,16 +375,26 @@ func (s *sourcesAPI) testSource(w http.ResponseWriter, r *http.Request) {
 		caps = adapter.DefaultCapabilities()
 	}
 	caps.MaxResultsPerRun = 1 // fetch minimal 1 item for testing
+	caps.MaxDetailsPerRun = 0 // never spend the daily detail quota on a test
 
+	// One request, no meaningful quota consumption: details stay disabled and
+	// the source token bucket still applies (first request is immediate).
+	dailyRemaining := 0
+	if caps.QuotaUnit != "details" {
+		dailyRemaining = 1
+	}
 	srcCfg := discovery.SourceConfig{
-		ID:           src.ID,
-		Name:         src.Name,
-		Adapter:      src.Adapter,
-		Enabled:      src.Enabled,
-		Priority:     src.Priority,
-		AuthType:     src.AuthType,
-		APIKey:       apiKey,
-		Capabilities: caps,
+		ID:             src.ID,
+		Name:           src.Name,
+		Adapter:        src.Adapter,
+		Enabled:        src.Enabled,
+		Priority:       src.Priority,
+		AuthType:       src.AuthType,
+		APIKey:         apiKey,
+		Capabilities:   caps,
+		RateLimiter:    s.orchestrator.WaiterFor(src.ID, caps),
+		DailyRemaining: dailyRemaining,
+		Usage:          &discovery.UsageTracker{},
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)

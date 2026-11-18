@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/maicondmenezes/openjob/internal/discovery/ratelimit"
 	"github.com/maicondmenezes/openjob/internal/events"
 	"github.com/maicondmenezes/openjob/internal/llm"
 	"github.com/maicondmenezes/openjob/internal/score"
@@ -18,10 +19,10 @@ import (
 )
 
 const (
-	SettingDiscoveryConfig  = "discovery_config"
-	SettingResumeKeywords   = "resume_keywords"
-	SettingResumeHash       = "resume_hash"
-	maxBatchScoringPerRun   = 15
+	SettingDiscoveryConfig = "discovery_config"
+	SettingResumeKeywords  = "resume_keywords"
+	SettingResumeHash      = "resume_hash"
+	maxBatchScoringPerRun  = 15
 )
 
 // Orchestrator coordinates vacancy discovery across all enabled sources,
@@ -29,21 +30,27 @@ const (
 // (CP10: batch scoring moved to the tasks queue; inline only as a fallback
 // when no enqueuer is wired, e.g. unit tests).
 type Orchestrator struct {
-	repo       store.Repository
-	registry   *Registry
-	masterKey  []byte
-	llmClient  llm.Client
-	logger     *slog.Logger
-	enqueuer   ScoreEnqueuer  // optional (nil = legacy inline scoring)
-	publisher  EventPublisher // optional (nil = no events)
+	repo      store.Repository
+	registry  *Registry
+	masterKey []byte
+	llmClient llm.Client
+	logger    *slog.Logger
+	enqueuer  ScoreEnqueuer  // optional (nil = legacy inline scoring)
+	publisher EventPublisher // optional (nil = no events)
+	limiter   *ratelimit.Limiter
+
+	// runMu serializes concurrent Discover calls (CP14): repeated "Buscar
+	// agora" clicks are queued by the task pool and executed one at a time,
+	// never in parallel against the same sources.
+	runMu sync.Mutex
 
 	mu           sync.Mutex
 	running      bool
 	currentRunID int64
 
-	tickerMu     sync.Mutex
-	ticker       *time.Ticker
-	tickerStop   chan struct{}
+	tickerMu   sync.Mutex
+	ticker     *time.Ticker
+	tickerStop chan struct{}
 }
 
 // ScoreEnqueuer receives the new jobs of a run for asynchronous scoring —
@@ -71,12 +78,29 @@ func NewOrchestrator(repo store.Repository, registry *Registry, masterKey []byte
 		masterKey: masterKey,
 		llmClient: llmClient,
 		logger:    logger,
+		limiter:   ratelimit.New(repo),
 	}
 }
 
 // Registry returns the underlying adapter registry.
 func (o *Orchestrator) Registry() *Registry {
 	return o.registry
+}
+
+// Limiter exposes the persistent rate limiter (used by the sources API to
+// render usage/health and to gate the manual "test source" action).
+func (o *Orchestrator) Limiter() *ratelimit.Limiter {
+	return o.limiter
+}
+
+// WaiterFor returns the token bucket of a source configured from its
+// capabilities — also used by POST /api/sources/{id}/test.
+func (o *Orchestrator) WaiterFor(sourceID string, caps Capabilities) *ratelimit.SourceWaiter {
+	return o.limiter.Waiter(sourceID, ratelimit.Config{
+		Requests: caps.RateLimit.Requests,
+		Period:   caps.RateLimit.Period,
+		Strategy: caps.RateLimit.Strategy,
+	})
 }
 
 // SetScoreEnqueuer wires the async scoring queue (CP10). When nil, scoring
@@ -207,12 +231,13 @@ func (o *Orchestrator) RefreshResumeKeywords(ctx context.Context) ([]string, err
 
 // Discover executes an end-to-end automated discovery run.
 func (o *Orchestrator) Discover(ctx context.Context) (int64, RunStats, error) {
+	// CP14: serialize instead of rejecting. The HTTP API enqueues one task per
+	// click; the task workers may call concurrently, so the second run waits
+	// here and starts as soon as the first one releases the sources.
+	o.runMu.Lock()
+	defer o.runMu.Unlock()
+
 	o.mu.Lock()
-	if o.running {
-		runID := o.currentRunID
-		o.mu.Unlock()
-		return runID, RunStats{}, errors.New("já existe uma busca em execução")
-	}
 	o.running = true
 	o.mu.Unlock()
 
@@ -322,12 +347,18 @@ func (o *Orchestrator) runPipeline(ctx context.Context, runID int64) (RunStats, 
 
 	var allFetched []DiscoveredJob
 
-	// Fetch from each enabled source
+	// CP14: API sources run first (fast, no quota), then scraping sources at
+	// their conservative pace. Within each group the user priority wins.
+	type runnableSource struct {
+		src     store.Source
+		adapter Adapter
+		caps    Capabilities
+	}
+	runnable := make([]runnableSource, 0, len(sources))
 	for _, src := range sources {
 		if !src.Enabled {
 			continue
 		}
-
 		adapter, ok := o.registry.Get(src.Adapter)
 		if !ok {
 			errMsg := fmt.Sprintf("fonte %s: adapter %q não encontrado", src.ID, src.Adapter)
@@ -341,6 +372,80 @@ func (o *Orchestrator) runPipeline(ctx context.Context, runID int64) (RunStats, 
 			})
 			continue
 		}
+		caps := adapter.DefaultCapabilities()
+		if src.Capabilities != "" {
+			if err := json.Unmarshal([]byte(src.Capabilities), &caps); err != nil {
+				caps = adapter.DefaultCapabilities()
+			}
+		}
+		if caps.AccessType == "" {
+			caps.AccessType = AccessAPI
+		}
+		runnable = append(runnable, runnableSource{src: src, adapter: adapter, caps: caps})
+	}
+	sort.SliceStable(runnable, func(i, j int) bool {
+		iScrape := runnable[i].caps.IsScraping()
+		jScrape := runnable[j].caps.IsScraping()
+		if iScrape != jScrape {
+			return !iScrape // API first
+		}
+		if runnable[i].src.Priority != runnable[j].src.Priority {
+			return runnable[i].src.Priority < runnable[j].src.Priority
+		}
+		return runnable[i].src.ID < runnable[j].src.ID
+	})
+
+	// Fetch from each enabled source
+	for _, item := range runnable {
+		src, adapter, caps := item.src, item.adapter, item.caps
+
+		stat := SourceRunStat{
+			SourceID:   src.ID,
+			Adapter:    src.Adapter,
+			AccessType: caps.AccessType,
+			DailyQuota: caps.DailyQuota,
+			Status:     "ok",
+		}
+
+		// Layer 3a: circuit breaker / exponential backoff. A source in its
+		// penalty window is skipped without touching the network.
+		if gap, err := o.limiter.Check(ctx, src.ID); err == nil && gap.Blocked {
+			stat.Skipped = true
+			stat.Status = gap.Status
+			stat.Note = gap.Reason
+			if gap.Until != nil {
+				stat.BackoffUntil = gap.Until.Format(time.RFC3339)
+			}
+			o.logger.Warn("orchestrator: source temporarily disabled", "source", src.ID, "status", gap.Status, "reason", gap.Reason)
+			stats.Sources = append(stats.Sources, stat)
+			continue
+		}
+
+		// Layer 3b: persistent daily quota (Vagas.com.br details, InfoJobs
+		// requests). Exhausted today → skip; the counter resets tomorrow.
+		// A details quota is special: the listing itself is free, so the
+		// source still runs and only the detail enrichment is disabled.
+		dailyRemaining := -1
+		if caps.RequiresDailyQuota && caps.DailyQuota > 0 {
+			remaining, err := o.limiter.Remaining(ctx, src.ID, caps.DailyQuota, caps.QuotaUnit)
+			if err == nil {
+				dailyRemaining = remaining
+				stat.DailyUsed = caps.DailyQuota - remaining
+				if remaining == 0 {
+					if caps.QuotaUnit == "details" {
+						stat.Note = "limite diário de detalhes atingido — detalhes disponíveis amanhã"
+						o.logger.Info("orchestrator: detail quota exhausted, listing only", "source", src.ID, "quota", caps.DailyQuota)
+					} else {
+						stat.Skipped = true
+						stat.Status = "quota"
+						stat.Note = "limite diário atingido — tente novamente amanhã"
+						o.logger.Info("orchestrator: daily quota exhausted", "source", src.ID, "quota", caps.DailyQuota)
+						stats.Sources = append(stats.Sources, stat)
+						continue
+					}
+				}
+			}
+		}
 
 		// Decrypt auth key if present
 		apiKey := ""
@@ -350,20 +455,19 @@ func (o *Orchestrator) runPipeline(ctx context.Context, runID int64) (RunStats, 
 			}
 		}
 
-		var caps Capabilities
-		if err := json.Unmarshal([]byte(src.Capabilities), &caps); err != nil {
-			caps = adapter.DefaultCapabilities()
-		}
-
+		usage := &UsageTracker{}
 		srcCfg := SourceConfig{
-			ID:           src.ID,
-			Name:         src.Name,
-			Adapter:      src.Adapter,
-			Enabled:      src.Enabled,
-			Priority:     src.Priority,
-			AuthType:     src.AuthType,
-			APIKey:       apiKey,
-			Capabilities: caps,
+			ID:             src.ID,
+			Name:           src.Name,
+			Adapter:        src.Adapter,
+			Enabled:        src.Enabled,
+			Priority:       src.Priority,
+			AuthType:       src.AuthType,
+			APIKey:         apiKey,
+			Capabilities:   caps,
+			RateLimiter:    o.WaiterFor(src.ID, caps),
+			DailyRemaining: dailyRemaining,
+			Usage:          usage,
 		}
 
 		// Fetch with fault tolerance: single source error must not break the whole run
@@ -373,10 +477,16 @@ func (o *Orchestrator) runPipeline(ctx context.Context, runID int64) (RunStats, 
 		}
 
 		jobs, fetchErr := adapter.Fetch(ctx, srcCfg, srcKeywords)
-		stat := SourceRunStat{
-			SourceID: src.ID,
-			Adapter:  src.Adapter,
-			Fetched:  len(jobs),
+		stat.Fetched = len(jobs)
+
+		// Layer 3c: persist the quota consumption even on partial failures.
+		if u, err := o.limiter.ConsumeDaily(ctx, src.ID, usage.Requests, usage.DetailRequests); err == nil {
+			stat.DetailsUsed = u.DetailsUsed
+			if caps.QuotaUnit == "details" {
+				stat.DailyUsed = u.DetailsUsed
+			} else {
+				stat.DailyUsed = u.Used
+			}
 		}
 
 		if fetchErr != nil {
@@ -384,6 +494,29 @@ func (o *Orchestrator) runPipeline(ctx context.Context, runID int64) (RunStats, 
 			o.logger.Error("orchestrator: source fetch failed", "source", src.ID, "err", fetchErr)
 			stat.Error = fetchErr.Error()
 			stats.Errors = append(stats.Errors, errMsg)
+
+			var blockedErr *BlockedError
+			blocked := errors.As(fetchErr, &blockedErr)
+			if res, herr := o.limiter.RecordFailure(ctx, src.ID, fetchErr.Error(), blocked); herr == nil {
+				stat.Status = res.Health.Status
+				if res.Health.DegradedUntil != nil {
+					stat.BackoffUntil = res.Health.DegradedUntil.Format(time.RFC3339)
+				} else if res.Health.BackoffUntil != nil {
+					stat.BackoffUntil = res.Health.BackoffUntil.Format(time.RFC3339)
+				}
+				if res.DidDegrade {
+					o.publish(events.Event{
+						Kind:     events.KindSourceDegraded,
+						Severity: events.SeverityWarning,
+						Title:    "Fonte degradada",
+						Body:     fmt.Sprintf("%s foi desativada por 24h após 3 falhas consecutivas.", src.Name),
+						Link:     "/settings/sources",
+						DedupKey: "source_degraded:" + src.ID,
+						Metadata: map[string]any{"source": src.ID, "adapter": src.Adapter, "failures": res.Health.ConsecutiveFailures},
+					})
+				}
+			}
+
 			// CP10: per-source failure event — deduplicated by the notifier so
 			// repeated ticks do not spam the bell.
 			o.publish(events.Event{
@@ -397,6 +530,7 @@ func (o *Orchestrator) runPipeline(ctx context.Context, runID int64) (RunStats, 
 			})
 		} else {
 			allFetched = append(allFetched, jobs...)
+			_ = o.limiter.RecordSuccess(ctx, src.ID)
 		}
 		stats.Sources = append(stats.Sources, stat)
 	}

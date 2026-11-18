@@ -52,6 +52,30 @@ type Source struct {
 	UpdatedAt    time.Time
 }
 
+// SourceDailyUsage is the persistent daily counter of a source (CP14). The
+// counter survives restarts and resets naturally when the local date changes
+// (rows are keyed by source_id + day).
+type SourceDailyUsage struct {
+	SourceID    string
+	Day         string // local date, YYYY-MM-DD
+	Used        int    // total requests/items consumed today
+	DetailsUsed int    // detail-page requests consumed today
+	UpdatedAt   time.Time
+}
+
+// SourceHealth is the persisted backoff/circuit-breaker state of a source
+// (CP14). Status is "ok" | "backoff" | "degraded" | "blocked".
+type SourceHealth struct {
+	SourceID            string
+	Status              string
+	ConsecutiveFailures int
+	BackoffUntil        *time.Time
+	DegradedUntil       *time.Time
+	LastError           string
+	LastSuccessAt       *time.Time
+	UpdatedAt           time.Time
+}
+
 // DiscoveryRun records an automated or manual discovery execution (CP6).
 type DiscoveryRun struct {
 	ID           int64
@@ -155,6 +179,15 @@ type Repository interface {
 	CreateSource(ctx context.Context, s Source) error
 	UpdateSource(ctx context.Context, s Source) error
 	DeleteSource(ctx context.Context, id string) error
+
+	// source_daily_usage + source_health (CP14) — persistent quota counters
+	// and circuit-breaker state survive restarts.
+	GetSourceDailyUsage(ctx context.Context, sourceID, day string) (SourceDailyUsage, error)
+	AddSourceDailyUsage(ctx context.Context, sourceID, day string, usedDelta, detailsDelta int) (SourceDailyUsage, error)
+	ListSourceDailyUsage(ctx context.Context, day string) ([]SourceDailyUsage, error)
+	GetSourceHealth(ctx context.Context, sourceID string) (SourceHealth, error)
+	UpsertSourceHealth(ctx context.Context, h SourceHealth) error
+	ListSourceHealth(ctx context.Context) ([]SourceHealth, error)
 
 	// discovery_runs (CP6)
 	CreateDiscoveryRun(ctx context.Context, r DiscoveryRun) (int64, error)

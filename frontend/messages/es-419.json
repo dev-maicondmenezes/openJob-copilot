@@ -699,5 +699,21 @@
   "jobs.status_label.approved": "aprobada",
   "jobs.status_label.discarded": "descartada",
   "errors.application.invalid_status": "Estado no válido",
-  "errors.settings.invalid_locale": "Idioma no compatible"
+  "errors.settings.invalid_locale": "Idioma no compatible",
+  "sources.col.type": "Tipo",
+  "sources.col.usage_today": "Uso hoy",
+  "sources.col.health": "Salud",
+  "sources.cell.sec": "s",
+  "sources.type.api": "API",
+  "sources.type.scraping": "Scraping",
+  "sources.badge.scraping": "scraping",
+  "sources.health.ok": "ok",
+  "sources.health.degraded": "degradada",
+  "sources.health.blocked": "bloqueada",
+  "sources.usage.details": "{count} detalles hoy",
+  "sources.scraping_warning": "Esta fuente no ofrece API. openJob respeta límites conservadores para no bloquear tu acceso.",
+  "notifications.source.degraded.title": "Fuente de empleos degradada",
+  "notifications.source.degraded.body": "La fuente {source} fue desactivada por 24h tras 3 fallos consecutivos.",
+  "tasks.type.discover": "Búsqueda de empleos",
+  "jobs.flash.search_queued": "Búsqueda en cola (posición {position}). Sigue el progreso en Tareas."
 }
