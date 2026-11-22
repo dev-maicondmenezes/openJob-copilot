@@ -18,7 +18,7 @@ test.describe('correções de UI/UX', () => {
 	});
 
 	test('resumo de palavras-chave e ícones de configuração dos filtros', async ({ page }) => {
-		await gotoReady(page, '/jobs');
+		await gotoReady(page, '/jobs/list');
 		await expect(page.getByText('Palavras-chave configuradas')).toBeVisible();
 		await expect(page.locator('a[title="Configurar busca e filtros"]')).toBeVisible();
 		await expect(page.locator('a[title="Configurar fontes de vagas"]:visible')).toBeVisible();
@@ -53,7 +53,7 @@ test.describe('correções de UI/UX', () => {
 		await page.route('**/api/jobs', (route) =>
 			route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ jobs: many }) })
 		);
-		await gotoReady(page, '/jobs');
+		await gotoReady(page, '/jobs/list');
 
 		const pagination = page.getByRole('navigation', { name: 'Paginação e ações de vagas' });
 		await expect(pagination).toBeVisible();
@@ -66,7 +66,7 @@ test.describe('correções de UI/UX', () => {
 	});
 
 	test('Aprovar apenas mostra toast: sem redirect e sem recarregar a lista', async ({ page }) => {
-		await gotoReady(page, '/jobs');
+		await gotoReady(page, '/jobs/list');
 		let jobListRequests = 0;
 		page.on('request', (request) => {
 			if (request.url().endsWith('/api/jobs') && request.method() === 'GET') jobListRequests++;
@@ -76,7 +76,7 @@ test.describe('correções de UI/UX', () => {
 		await page.locator('tbody tr').first().locator('input[type="checkbox"]').check();
 		await page.getByRole('button', { name: 'Aprovar vagas selecionadas' }).click();
 		await expect(page.getByRole('status').filter({ hasText: /aprovada: 1 de 1/i })).toBeVisible();
-		await expect(page).toHaveURL(/\/jobs$/);
+		await expect(page).toHaveURL(/\/jobs\/list$/);
 		expect(jobListRequests).toBe(baseline);
 	});
 
@@ -104,7 +104,7 @@ test.describe('correções de UI/UX', () => {
 	});
 
 	test('ordenação única, filtro múltiplo e seleção em lote', async ({ page }) => {
-		await gotoReady(page, '/jobs');
+		await gotoReady(page, '/jobs/list');
 
 		// Ordenação padrão: score descendente.
 		await expect(page.locator('tbody tr').first()).toContainText('Senior Go Developer');
@@ -154,7 +154,7 @@ test.describe('correções de UI/UX', () => {
 
 	test('smartphone navega por rolagem contínua, sem paginação', async ({ page }) => {
 		await page.setViewportSize({ width: 375, height: 667 });
-		await gotoReady(page, '/jobs');
+		await gotoReady(page, '/jobs/list');
 		await expect(page.locator('footer.app-footer')).toHaveCount(0);
 		await expect(page.getByRole('navigation', { name: /Paginação/ })).toHaveCount(0);
 		await expect(page.locator('.card-list.scrollable').first()).toBeVisible();
@@ -182,7 +182,7 @@ test.describe('correções de UI/UX', () => {
 			route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ jobs: many }) })
 		);
 		await page.setViewportSize({ width: 768, height: 1024 });
-		await gotoReady(page, '/jobs');
+		await gotoReady(page, '/jobs/list');
 		await expect(page.locator('.record')).toHaveCount(8);
 		await page.locator('.card-list').evaluate((el) => (el.scrollTop = el.scrollHeight));
 		await expect(page.locator('.record')).toHaveCount(14);

@@ -152,6 +152,16 @@ fontes ao design system, sem quebrar as rotas existentes.
 reciclagem de nós (manter item ativo montado), Markdown de fontes não confiáveis
 (sanitização no servidor + cliente).
 
+**Status (2026-11-22): concluída.**
+- Feed vertical de tela cheia implementado em `/jobs` e definido como home (`/` e `/jobs`), com scroll-snap nativo (`scroll-snap-type: y mandatory`), janela deslizante (≤ 3 cards no DOM com reciclagem de slots) e botão “Buscar agora” integrado ao topo com feedback não bloqueante via toast.
+- Lista tradicional preservada em `/jobs/list` com alternância fluida entre Feed e Lista no header.
+- Rota dedicada de detalhe em `/jobs/[id]` com renderização segura em Markdown contra XSS (escape rigoroso e allowlist de links) e botão “Voltar ao feed”.
+- UI Revision (CP6) concluída: `/settings/sources` e `/settings/discovery` alinhadas aos tokens e componentes do design system CP12 (cards, modais, badges, foco acessível e responsividade).
+- Dashboard do CP15 reorganizado em `/dashboard`.
+- Navegação adaptada: sidebar no desktop e bottom nav com 4 itens no mobile.
+- ADRs 0028, 0029, 0030 e 0031 registrados sem colisões.
+- Gate e suíte de testes 100% verdes: `make vet`, `make test`, `make build` e `make test-ui` (check, i18n, lint de UI, e2e/interação, a11y axe-core e testes visuais com snapshots para smartphone 375×667, tablet 768×1024 e desktop 1440×900).
+
 ---
 
 ## 6. Fase 2 — CP17 + B6 (7–9 dias)
