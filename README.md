@@ -53,6 +53,14 @@ Paths tested and documented in [`docs/adr/0001-mdns-local-hostname.md`](docs/adr
 | `OPENJOB_PORT` | `8080` | HTTP listen port |
 | `OPENJOB_DB_PATH` | `/data/openjob.db` | SQLite database path |
 | `OPENJOB_HOSTNAME` | `openjob.copilot` | LAN hostname announced via mDNS |
+| `OPENJOB_FEATURE_UI_FEED` | `false` | Vertical feed as home (CP16) |
+| `OPENJOB_FEATURE_EMAIL_SYNC` | `false` | Email tracking + `in_process` pipeline (CP17) |
+| `OPENJOB_FEATURE_CURRICULUM_EXPORT` | `false` | Resume export (B10) |
+| `OPENJOB_FEATURE_SCORE_DETERMINISTIC` | `false` | Deterministic scoring refactor (B11) |
+
+Release flags accept `true`/`1` (and `false`/`0`); anything else stays off. They
+are exposed by `GET /api/features` so the SPA can hide unfinished UI until the
+matching phase ships.
 
 ### Local data & secrets — ⚠️ read this
 
@@ -145,6 +153,14 @@ Caminhos testados e documentados em [`docs/adr/0001-mdns-local-hostname.md`](doc
 | `OPENJOB_PORT` | `8080` | Porta HTTP |
 | `OPENJOB_DB_PATH` | `/data/openjob.db` | Caminho do banco SQLite |
 | `OPENJOB_HOSTNAME` | `openjob.copilot` | Hostname anunciado via mDNS |
+| `OPENJOB_FEATURE_UI_FEED` | `false` | Feed vertical como home (CP16) |
+| `OPENJOB_FEATURE_EMAIL_SYNC` | `false` | Tracking de e-mail + pipeline `in_process` (CP17) |
+| `OPENJOB_FEATURE_CURRICULUM_EXPORT` | `false` | Exportação de currículo (B10) |
+| `OPENJOB_FEATURE_SCORE_DETERMINISTIC` | `false` | Refactor determinístico de scoring (B11) |
+
+Flags de release aceitam `true`/`1` (e `false`/`0`); qualquer outro valor fica
+desligado. Elas são expostas por `GET /api/features` para a SPA esconder UI
+inacabada até a fase correspondente entrar no ar.
 
 ### Dados locais e segredos — ⚠️ leia
 

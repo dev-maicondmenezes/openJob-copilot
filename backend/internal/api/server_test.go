@@ -181,3 +181,37 @@ func TestSPAImmutableAssetsGetImmutableCache(t *testing.T) {
 		t.Errorf("GET %s cache-control = %q, want immutable", assetPath, cc)
 	}
 }
+
+func TestFeaturesEndpointDefaultsOff(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+
+	resp, err := srv.Client().Get(srv.URL + "/api/features")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	for _, key := range []string{`"ui.feed":false`, `"email.sync":false`, `"curriculum.export":false`, `"score.deterministic":false`} {
+		if !strings.Contains(string(body), key) {
+			t.Errorf("body = %s, want %s", body, key)
+		}
+	}
+}
+
+func TestFeaturesEndpointEchoesConfig(t *testing.T) {
+	cfg := config.Config{Features: config.Features{UIFeed: true, EmailSync: true}}
+	rec := httptest.NewRecorder()
+	handleFeatures(cfg)(rec, httptest.NewRequest(http.MethodGet, "/api/features", nil))
+
+	body := rec.Body.String()
+	for _, key := range []string{`"ui.feed":true`, `"email.sync":true`, `"curriculum.export":false`, `"score.deterministic":false`} {
+		if !strings.Contains(body, key) {
+			t.Errorf("body = %s, want %s", body, key)
+		}
+	}
+}

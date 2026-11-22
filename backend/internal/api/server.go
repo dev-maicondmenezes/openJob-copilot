@@ -51,6 +51,7 @@ func (rt *Runtime) Stop() {
 
 // New builds the root http.Handler and starts the background services.
 //   - /api/health → {"status":"ok"} (Checkpoint 1)
+//   - /api/features → release flags from config (Phase 0)
 //   - /api/settings/* → BYOK configuration (Checkpoint 3)
 //   - /api/curriculum/* → base resume + AI tailoring (Checkpoint 4)
 //   - /api/jobs/* + /api/applications → manual jobs, scoring, pipeline (CP5)
@@ -88,6 +89,7 @@ func New(cfg config.Config, logger *slog.Logger, repo store.Repository, masterKe
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", handleHealth(cfg, repo))
+		r.Get("/features", handleFeatures(cfg))
 		registerSettings(r, &settingsAPI{
 			repo:      repo,
 			masterKey: masterKey,
@@ -167,6 +169,19 @@ func handleHealth(cfg config.Config, repo store.Repository) http.HandlerFunc {
 			payload["notifications"] = map[string]any{"unread": unread}
 		}
 		writeJSON(w, http.StatusOK, payload)
+	}
+}
+
+// handleFeatures exposes the release flags so the SPA can gate unfinished UI.
+// Keys mirror the flag names documented in the README.
+func handleFeatures(cfg config.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]bool{
+			"ui.feed":             cfg.Features.UIFeed,
+			"email.sync":          cfg.Features.EmailSync,
+			"curriculum.export":   cfg.Features.CurriculumExport,
+			"score.deterministic": cfg.Features.ScoreDeterministic,
+		})
 	}
 }
 

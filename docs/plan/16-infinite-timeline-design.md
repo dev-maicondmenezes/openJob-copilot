@@ -163,10 +163,10 @@ Cada card ocupa 100% do viewport e exibe, em camadas:
 
 ## 9. Registrar
 
-- **ADR `0027-feed-vertical-imersivo.md`** — adotar o padrão de feed vertical de tela cheia como home do app, com scroll-snap nativo e janela deslizante de itens. Justificativa: reduz fadiga de navegação em listas longas, aumenta foco por vaga e se alinha ao uso mobile-first. Alternativa rejeitada: manter apenas a lista tradicional (não resolve o problema de sobrecarga de informação).
-- **ADR `0028-read-more-sheet-e-rota-detalhe.md`** — descrição completa em rota dedicada (`/jobs/[id]`), com teaser no feed. Justificativa: o card do feed deve ser escaneável; o detalhe é para leitura profunda. Alternativa rejeitada: expandir o card no próprio feed (quebra o snap e a performance).
-- **ADR `0029-markdown-sanitizado.md`** — usar Markdown sanitizado no cliente com biblioteca que aplica políticas de URL/atributos antes da renderização. Justificativa: segurança contra XSS sem sacrificar a formatação. Alternativa rejeitada: `{@html}` com HTML não sanitizado.
-- **ADR `0030-atualizacao-do-feed.md`** — botão “Buscar agora” como mecanismo primário de atualização, com pull-to-refresh opcional no mobile. Justificativa: o botão é acessível (teclado, leitor de tela) e explícito; o gesto é um enhancement.
+- **ADR `0028-feed-vertical-imersivo.md`** — adotar o padrão de feed vertical de tela cheia como home do app, com scroll-snap nativo e janela deslizante de itens. Justificativa: reduz fadiga de navegação em listas longas, aumenta foco por vaga e se alinha ao uso mobile-first. Alternativa rejeitada: manter apenas a lista tradicional (não resolve o problema de sobrecarga de informação).
+- **ADR `0029-read-more-sheet-e-rota-detalhe.md`** — descrição completa em rota dedicada (`/jobs/[id]`), com teaser no feed. Justificativa: o card do feed deve ser escaneável; o detalhe é para leitura profunda. Alternativa rejeitada: expandir o card no próprio feed (quebra o snap e a performance).
+- **ADR `0030-markdown-sanitizado.md`** — usar Markdown sanitizado no cliente com biblioteca que aplica políticas de URL/atributos antes da renderização. Justificativa: segurança contra XSS sem sacrificar a formatação. Alternativa rejeitada: `{@html}` com HTML não sanitizado.
+- **ADR `0031-atualizacao-do-feed.md`** — botão “Buscar agora” como mecanismo primário de atualização, com pull-to-refresh opcional no mobile. Justificativa: o botão é acessível (teclado, leitor de tela) e explícito; o gesto é um enhancement.
 - **Testes:**
   - Snapshot visual do feed em 375×667, 768×1024 e 1440×900.
   - Navegação por teclado e `inert` (teste com `@testing-library` ou Playwright).

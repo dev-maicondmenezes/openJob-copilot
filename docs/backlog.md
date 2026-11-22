@@ -4,6 +4,9 @@
 > Cada item entra como checkpoint de refinamento após a fase de validação
 > (CP8), a menos que um checkpoint ativo dependa dele. Ordem sugerida por
 > valor × esforço.
+>
+> O fechamento do MVP está organizado em fases no
+> [plano de release MVP](plan/release-mvp.md) (CP16 + CP17 + backlog restante).
 
 ---
 
@@ -130,6 +133,23 @@
 
 ---
 
+## Tracking & Pipeline de candidaturas (Checkpoint 17)
+
+### B12 — Atualização automática do status das vagas via e-mail
+- **Status:** ✅ promovido a checkpoint — ver [17-email-tracking-pipeline.md](plan/17-email-tracking-pipeline.md)
+- **Esforço:** grande (6–8 dias)
+- **Descrição:** ler automaticamente o e-mail informado no currículo (Gmail OAuth read-only ou IMAP) e atualizar o estágio das candidaturas a partir das respostas dos recrutadores/ATSs. Inclui:
+  - **Conector de e-mail** com sync incremental (Gmail `history.list` / IMAP `UID > last_uid`) e polling local-first (sem Pub/Sub nem webhook público).
+  - **Cascata de matching** thread → nome da empresa → allowlist de ATS (Greenhouse, Lever, Workday, Ashby, SmartRecruiters, iCIMS) → domínio corporativo → LLM apenas na cauda de baixa confiança. O matching por domínio do remetente **não funciona** na prática (0/237 em dados de referência) porque os e-mails vêm de relays de ATS.
+  - **Pipeline com `in_process` ("em processo")** como coluna generalista entre "enviada" e "encerrada", substituindo o `status` fixo por `stage_group` (6 valores) + `stage_label`.
+  - **Tags com namespace `phase:`** para representar o estágio específico de cada empresa/plataforma sem inflar o enum.
+  - **Transições monotônicas:** avanço automático só para frente e com confiança ≥ 0.8; confiança baixa vira sugestão revisável; rejeição nunca reabre o processo.
+- **Aceite:** e-mail de confirmação/entrevista/proposta/rejeição vincula-se à candidatura correta e move o estágio; casos ambíguos aparecem como sugestão; nenhuma transição automática retrocede.
+- **Depende de:** CP7, CP10 e CP12 concluídos.
+- **Origem:** sessão de chat "APIs de vagas remotas" (`docs/context/6c7eea4c-71d0-49e7-9f5b-5c374f9b73c6.json`, msgs. 34–35). Detalhes completos no plano do CP17.
+
+---
+
 ## Refatoração de Backend
 
 ### B11 — Refatoração do backend: eliminar IA de features determinísticas
@@ -203,3 +223,4 @@
 5. **B3 → B4** (presets + free tier) — "começar de graça em 3 toques".
 6. **B2** (multi-perfis) — base para flexibilidade real de custo/fallback.
 7. **B7** (LinkedIn OAuth) e **B5** (OAuth de provedores) — dependem de spikes de viabilidade com provedores externos e parceiros.
+8. **B12 → CP17** (automação de e-mail + pipeline "em processo" + tags de fase) — maior ganho operacional no tracking; depende de CP7, CP10 e CP12 e já está detalhado em [`plan/17-email-tracking-pipeline.md`](plan/17-email-tracking-pipeline.md).

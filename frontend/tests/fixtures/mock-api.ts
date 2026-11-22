@@ -90,7 +90,12 @@ const responses: Record<string, unknown> = {
 				recent_window_hours: 720
 			},
 			created_at: '2026-10-01T00:00:00Z',
-			updated_at: '2026-11-01T00:00:00Z'
+			updated_at: '2026-11-01T00:00:00Z',
+			usage_today: 0,
+			usage_quota: 0,
+			usage_unit: 'requests',
+			details_used: 0,
+			health: { status: 'ok', consecutive_failures: 0 }
 		}
 	],
 	'/api/sources/adapters': [{ slug: 'himalayas', name: 'Himalayas', capabilities: { rate_limit: { requests: 60, period: 'minute' } } }],
