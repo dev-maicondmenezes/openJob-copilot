@@ -267,6 +267,7 @@
 	.discovery-form {
 		display: flex;
 		flex-direction: column;
+		gap: var(--space-6);
 	}
 
 	.keyword-row {

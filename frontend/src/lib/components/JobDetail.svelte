@@ -5,6 +5,7 @@
 	import Badge from '#lib/ui/Badge.svelte';
 	import Panel from '#lib/ui/Panel.svelte';
 	import Icon from '#lib/ui/Icon.svelte';
+	import MarkdownView from '#lib/components/MarkdownView.svelte';
 	import { SOURCE_LABELS, statusLabel, scoreTone, type Job } from '#lib/types/job.js';
 
 	interface Props {
@@ -73,7 +74,9 @@
 
 	{#if job.description}
 		<Panel title={t('jobdetail.description')}>
-			<p class="description">{job.description}</p>
+			<div class="description">
+				<MarkdownView content={job.description} />
+			</div>
 		</Panel>
 	{/if}
 

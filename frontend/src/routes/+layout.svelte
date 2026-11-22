@@ -119,7 +119,12 @@
 		</div>
 	</header>
 
-	<main id="main" class="content" tabindex="-1">
+	<main
+		id="main"
+		class="content"
+		class:is-feed={page.url.pathname === '/jobs' || page.url.pathname === '/'}
+		tabindex="-1"
+	>
 		{@render children()}
 	</main>
 
@@ -149,6 +154,14 @@
 	/* 4ª área do shell: rodapé opcional, após a página de conteúdo. */
 	.app.with-footer :global(.content) {
 		margin-bottom: var(--space-4);
+	}
+
+	.app :global(.content.is-feed) {
+		padding: 0;
+		border: 0;
+		background: transparent;
+		box-shadow: none;
+		overflow: hidden;
 	}
 
 	.app-footer {

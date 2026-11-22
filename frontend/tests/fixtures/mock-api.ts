@@ -17,6 +17,7 @@ const job = (id: number) => ({
 });
 
 const responses: Record<string, unknown> = {
+	'/api/features': { ui_feed: true, email_sync: false, curriculum_export: false, score_deterministic: false },
 	'/api/settings': { settings: { locale: 'pt-BR' }, locale: 'pt-BR' },
 	'/api/settings/llm-key': { configured: true },
 	'/api/settings/llm': { configured: true, base_url: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },

@@ -7,13 +7,14 @@ export interface NavItem {
 	icon: string;
 }
 
-/** Funções (não constantes) para que os labels sejam reativos ao locale. */
+/** Funções (não constantes) para que os labels sejam reativos ao locale.
+ * CP16: Feed (/jobs) é a home principal; o dashboard do CP15 vive em /dashboard. */
 export function primaryNav(): readonly NavItem[] {
 	return [
-		{ href: '/', label: t('common.home'), icon: 'home' },
 		{ href: '/jobs', label: t('common.jobs'), icon: 'briefcase' },
 		{ href: '/applications', label: t('common.applications'), icon: 'clipboard' },
-		{ href: '/curriculum', label: t('common.curriculum'), icon: 'file' }
+		{ href: '/curriculum', label: t('common.curriculum'), icon: 'file' },
+		{ href: '/dashboard', label: t('home.dashboard'), icon: 'home' }
 	];
 }
 
@@ -22,12 +23,14 @@ export function secondaryNav(): readonly NavItem[] {
 	return [{ href: '/tasks', label: t('common.tasks'), icon: 'sparkles' }];
 }
 
-/** Bottom nav: apenas os 4 destinos primários. Configurações ficam no menu
- * do cabeçalho (`SettingsMenu`), o mesmo padrão em desktop e mobile. */
+/** Bottom nav: os 4 destinos primários (Feed, Candidaturas, Currículo, Dashboard). */
 export function bottomNav(): readonly NavItem[] {
 	return primaryNav();
 }
 
 export function isActive(href: string, pathname: string): boolean {
+	if (href === '/jobs') {
+		return pathname === '/' || pathname === '/jobs';
+	}
 	return href === '/' ? pathname === '/' : pathname.startsWith(href);
 }

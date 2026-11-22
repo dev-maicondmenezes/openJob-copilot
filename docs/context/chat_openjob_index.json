@@ -1,0 +1,50 @@
+[
+{
+    "id":"4a0bab8e-362c-4e4a-8589-01fd09fc51a2",
+    "title":"Análise TAM SAM SOM openJob",
+    "pinned":false,
+    "message_count":18,
+    "inserted_at":"2026-11-16T02:03:35.180Z",
+    "updated_at":"2026-11-18T20:13:28.583Z"
+},
+{
+    "id":"6c7eea4c-71d0-49e7-9f5b-5c374f9b73c6",
+    "title":"APIs de vagas remotas",
+    "pinned":false,
+    "message_count":36,
+    "inserted_at":"2026-11-15T20:43:20.273Z",
+    "updated_at":"2026-11-17T21:53:05.549Z"
+},
+{
+    "id":"14fb7eb0-d42c-481d-ad43-9b4aca3bbe3c",
+    "title":"Revisão estrutural do backlog",
+    "pinned":false,
+    "message_count":2,
+    "inserted_at":"2026-11-16T16:17:48.775Z",
+    "updated_at":"2026-11-16T16:36:12.268Z"
+},
+{
+    "id":"8a5d1fad-95ab-408b-9562-c9acb316f096",
+    "title":"Revisão do relatório openJob",
+    "pinned":false,
+    "message_count":2,
+    "inserted_at":"2026-11-15T23:37:04.544Z",
+    "updated_at":"2026-11-15T23:42:39.532Z"
+},
+{
+    "id":"3e1e5d10-8a51-40e4-a48f-b98e94f5dbaa",
+    "title":"Atualizar spec com plano",
+    "pinned":false,
+    "message_count":2,
+    "inserted_at":"2026-11-13T14:39:05.469Z",
+    "updated_at":"2026-11-13T15:11:00.483Z"
+},
+{
+    "id":"e612e5a5-31b5-4dec-a291-4038ba71ab4c",
+    "title":"Análise de mercado copiloto",
+    "pinned":false,
+    "message_count":20,
+    "inserted_at":"2026-11-13T12:16:36.461Z",
+    "updated_at":"2026-11-13T15:02:41.162Z"
+}
+]

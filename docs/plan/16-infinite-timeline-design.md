@@ -186,3 +186,16 @@ Cada card ocupa 100% do viewport e exibe, em camadas:
 - **Comentários ou interação social no feed** — fora do escopo do copiloto.
 - **Edição inline no feed** — ações de edição continuam nas telas de gerenciamento.
 - **Substituição completa da lista tradicional** — a lista (`/jobs/list`) permanece como modo alternativo.
+
+---
+
+## 11. Status de conclusão
+
+**Status (2026-11-22): concluído (Fase 1 do MVP).**
+Todos os critérios de verificação e gates foram atendidos com sucesso:
+- Feed vertical de tela cheia ativo em `/jobs` e `/` com scroll-snap nativo e janela deslizante.
+- Lista tradicional em `/jobs/list` preservada.
+- Detalhe em `/jobs/[id]` com Markdown sanitizado e botão de retorno.
+- Botão "Buscar agora" com feedback não bloqueante e toasts de status.
+- ADRs 0028–0031 registrados.
+- Suíte completa verde: tipos (`svelte-check`), i18n (`i18n-check`), lint de UI (`lint-ui`), e2e (`playwright test`), acessibilidade (`axe-core`) e visual (`test:visual`).
