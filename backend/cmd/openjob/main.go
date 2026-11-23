@@ -1,98 +1,23 @@
+// openJob — local-first job application copilot.
+//
+// One static binary (CGO off, SPA embedded via //go:embed) with four commands:
+// `openjob` (desktop), `openjob serve` (headless), `openjob version` and
+// `openjob healthcheck`. Process settings come from flags or OPENJOB_*
+// environment variables (flag > env > default); everything functional is
+// configured later in the web app (CP18/CP19). See docs/plan/11-package-release.md
+// and docs/adr/0011, 0012.
 package main
 
 import (
 	"context"
-	"errors"
-	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
-
-	"github.com/maicondmenezes/openjob/internal/api"
-	"github.com/maicondmenezes/openjob/internal/config"
-	"github.com/maicondmenezes/openjob/internal/llm"
-	"github.com/maicondmenezes/openjob/internal/store"
 )
 
-// openJob — Checkpoint 3 (SQLite + BYOK).
-// Go backend with chi serving the embedded SPA, the /api surface and a local
-// SQLite store with encrypted BYOK keys (AES-GCM + data/.master.key).
-// Configuration comes from OPENJOB_* environment variables (spec §2).
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	slog.SetDefault(logger)
-
-	cfg := config.Load()
-
-	// Store: SQLite (modernc, no CGO) with embedded migrations (spec §7/§10.1).
-	repo, err := store.Open(cfg.DBPath)
-	if err != nil {
-		logger.Error("opening store", "err", err)
-		os.Exit(1)
-	}
-
-	// BYOK master key: generated on first run, mode 0600, next to the DB so a
-	// single volume backup carries both (spec §3.2, docs/adr/0004).
-	masterKeyPath := store.MasterKeyPath(cfg.DBPath)
-	masterKey, err := store.LoadOrCreateMasterKey(masterKeyPath)
-	if err != nil {
-		logger.Error("loading master key", "err", err)
-		os.Exit(1)
-	}
-	logger.Info("master key ready", "path", masterKeyPath)
-
-	// CP10: New also starts the event bus, the in-app notifier and the task
-	// worker pool; runtime.Stop tears them down before the store closes.
-	handler, runtime := api.New(cfg, logger, repo, masterKey, llm.NewOpenAIClient())
-	defer runtime.Stop()
-
-	srv := &http.Server{
-		Addr:    ":" + cfg.Port,
-		Handler: handler,
-		ReadTimeout: 10 * time.Second,
-		// WriteTimeout must exceed the LLM call budget (llm.requestTimeout =
-		// 120s): completions legitimately take 20–60s+. With the old 15s the
-		// server killed the connection mid-completion and the client saw
-		// "empty reply from server" / RemoteDisconnected.
-		WriteTimeout: 150 * time.Second,
-		IdleTimeout:  60 * time.Second,
-	}
-
-	errCh := make(chan error, 1)
-	go func() {
-		logger.Info("openjob starting",
-			"port", cfg.Port,
-			"db_path", cfg.DBPath,
-			"hostname", cfg.Hostname,
-			"url", "http://"+cfg.Hostname+":"+cfg.Port,
-		)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-	}()
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	select {
-	case err := <-errCh:
-		logger.Error("server error", "err", err)
-		os.Exit(1)
-	case sig := <-sigCh:
-		logger.Info("shutting down", "signal", sig.String())
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := srv.Shutdown(ctx); err != nil {
-			logger.Error("graceful shutdown failed", "err", err)
-			runtime.Stop()
-			os.Exit(1)
-		}
-		runtime.Stop() // task pool (drains ctx), notifier, bus, discovery ticker
-		if err := repo.Close(); err != nil {
-			logger.Warn("store close", "err", err)
-		}
-		logger.Info("shutdown complete")
-	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	code := newApp(os.Stdout, os.Stderr).run(ctx, os.Args[1:])
+	stop()
+	os.Exit(code)
 }
