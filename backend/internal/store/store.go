@@ -21,6 +21,18 @@ type Curriculum struct {
 	UploadedAt     time.Time
 }
 
+// Profile represents an LLM provider configuration saved as a named profile.
+// Multiple profiles allow users to switch between different AI providers/models
+// without re-entering settings (B2 - Múltiplos perfis).
+type Profile struct {
+	ID          string
+	Name        string
+	Config      []byte // encrypted LLM config (base_url, model)
+	IsDefault   bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 // Job is a vacancy discovered by an automated source or pasted manually (spec §7).
 type Job struct {
 	ID                 int64
@@ -248,6 +260,15 @@ type Repository interface {
 	// ActiveApplicationForJob guards against duplicated approvals (CP5):
 	// one open candidacy per job, ErrNotFound when the coast is clear.
 	ActiveApplicationForJob(ctx context.Context, jobID int64) (Application, error)
+
+	// llm_profiles (B2 - Múltiplos perfis)
+	CreateProfile(ctx context.Context, id, name string, config []byte, isDefault bool) error
+	GetProfile(ctx context.Context, id string) (Profile, error)
+	ListProfiles(ctx context.Context) ([]Profile, error)
+	UpdateProfile(ctx context.Context, id, name string, config []byte) error
+	DeleteProfile(ctx context.Context, id string) error
+	SetDefaultProfile(ctx context.Context, id string) error
+	MigrateFromFlatConfig(ctx context.Context) error
 
 	// email_accounts (CP17)
 	GetEmailAccount(ctx context.Context, id string) (*EmailAccount, error)

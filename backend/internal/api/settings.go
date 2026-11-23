@@ -45,6 +45,23 @@ type llmKeyRequest struct {
 	APIKey  string `json:"api_key"`
 }
 
+// Preset is a versioned LLM configuration template with a free-tier flag.
+// The catalog is versioned so the backend can evolve presets without breaking
+// existing client contracts; new versions are added, never removed.
+type Preset struct {
+	Version    int    `json:"version"`
+	BaseURL    string `json:"base_url"`
+	Model      string `json:"model"`
+	FreeTier   bool   `json:"free_tier"`
+	Deprecated bool   `json:"deprecated,omitempty"`
+}
+
+// PresetsResponse is the payload for GET /api/settings/llm/presets.
+type PresetsResponse struct {
+	Presets []Preset `json:"presets"`
+	Default Preset   `json:"default"`
+}
+
 // registerSettings mounts the settings routes.
 func registerSettings(r chi.Router, s *settingsAPI) {
 	r.Get("/settings", s.getSettings)
@@ -53,6 +70,7 @@ func registerSettings(r chi.Router, s *settingsAPI) {
 	r.Get("/settings/llm-key", s.llmKeyStatus)
 	r.Get("/settings/llm", s.llmConfig) // non-secret values for UI hydration
 	r.Post("/settings/llm-ping", s.pingLLM)
+	r.Get("/settings/llm/presets", s.presetsLLM)
 }
 
 // getSettings returns the non-secret, user-facing preferences (CP13 §4.4).
@@ -190,6 +208,64 @@ func (s *settingsAPI) llmConfig(w http.ResponseWriter, r *http.Request) {
 		"model":      model,
 	})
 }
+
+// presetsLLM returns the versioned preset catalog with free-tier flags and a
+// default model suggestion. The key never leaves the server; only base_url and
+// model are exposed (spec CP4 §3.1).
+func (s *settingsAPI) presetsLLM(w http.ResponseWriter, r *http.Request) {
+	_ = r.Context()
+
+	presets := []Preset{
+		{
+			Version:    1,
+			BaseURL:    "https://api.openai.com/v1",
+			Model:      "gpt-4o-mini",
+			FreeTier:   true,
+			Deprecated: false,
+		},
+		{
+			Version:    1,
+			BaseURL:    "https://api.groq.com/opensai/v1",
+			Model:      "llama-3.3-70b-versatile",
+			FreeTier:   true,
+			Deprecated: false,
+		},
+		{
+			Version:    1,
+			BaseURL:    "https://api.together.xyz/v1",
+			Model:      "mistral-7b-instruct",
+			FreeTier:   false,
+			Deprecated: false,
+		},
+		{
+			Version:    1,
+			BaseURL:    "https://api.perplexity.ai/v1",
+			Model:      "pplx-7b-online",
+			FreeTier:   false,
+			Deprecated: false,
+		},
+	}
+
+	// Select first free-tier preset as default
+	var defaultPreset Preset
+	for i := range presets {
+		if presets[i].FreeTier {
+			defaultPreset = presets[i]
+			break
+		}
+	}
+	// If no free-tier preset found, use first one
+	if defaultPreset.Version == 0 {
+		defaultPreset = presets[0]
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"presets": presets,
+		"default": defaultPreset,
+	})
+}
+
+// writeJSON is defined in server.go; reused here by the same package.
 
 // pingLLM runs a live connectivity/credentials test against the stored
 // provider config and returns a legible success/failure (spec CP3).
