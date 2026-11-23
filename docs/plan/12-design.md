@@ -97,7 +97,7 @@ Para cada rota: (a) aplicar os componentes do §3; (b) garantir os três layouts
 | `/notifications` (CP10) | Feed | Filtros por `type`/`severity`: `SegmentedControl` no mobile/tablet, inline no desktop; agrupamento por dia com `Section` |
 | `/tasks` (CP10) | Abas + lista | `Tabs`; linha em `Card` (mobile/tablet) → `Table` (desktop); barra de progresso consistente; detalhe em `Drawer` (desktop) / rota (mobile/tablet) |
 
-> O **wizard (CP11) é TUI** e **não** entra nesta auditoria.
+> O bootstrap do CP11 é apenas técnico e não possui interface de configuração do produto; não entra nesta auditoria.
 
 ## 6. Tarefas
 

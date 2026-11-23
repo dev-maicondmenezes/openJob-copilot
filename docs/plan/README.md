@@ -24,17 +24,21 @@
 | 8 | [08-validacao-pessoal.md](08-validacao-pessoal.md) 🆕 | Validação pessoal com dados reais | 2–4 semanas | CP1–CP7 |
 | 9 | [09-ats-assistido.md](09-ats-assistido.md) ⚠️ | ATS assistido (opcional) | — | CP8 + dor real comprovada |
 | 10 | [10-notificacoes-in-app.md](10-notificacoes-in-app.md) | Notificações in-app + tarefas de IA assíncronas | 3–4 dias | CP6, CP7 |
-| 11 | [11-package-release.md](11-package-release.md) | Binário único, wizard de instalação e release | 4–5 dias | CP1–CP10 |
+| 11 | [11-package-release.md](11-package-release.md) | Binário único, pacote .deb, imagem Docker Hub, GitHub Release e CI/CD por tag | 7–9 dias | CP1–CP10 |
 | 12 | [12-design.md](12-design.md) | Design system e responsividade multi-dispositivo | 5–6 dias | CP1–CP11 |
 | 13 | [13-dark-mode-i18n.md](13-dark-mode-i18n.md) | Dark mode + i18n (PT-BR, EN-US, ES-419) | 4–5 dias | CP1–CP12 |
 | 14 | [14-multi-mercado-latam.md](14-multi-mercado-latam.md) | Expansão multi-mercado (APIs + scraping ético) | — | CP6, CP10 |
 | 15 | [15-dashboard.md](15-dashboard.md) | Dashboard de estatísticas e ações na home | 4–5 dias | CP10, CP12, CP13, CP14 |
 | 16 | [16-infinite-timeline-design.md](16-infinite-timeline-design.md) | Feed vertical imersivo (estilo TikTok/Reels) | 6–8 dias | CP12, CP13 |
 | 17 | [17-email-tracking-pipeline.md](17-email-tracking-pipeline.md) 🆕 | Automação de e-mail, pipeline "em processo" e tags de fase | 6–8 dias | CP7, CP10, CP12 |
+| 18 | [18-users-auth-profile-oauth.md](18-users-auth-profile-oauth.md) 🆕 | Usuários, autenticação, perfil profissional e OAuth | 5–8 dias | CP17 |
+| 19 | [19-first-run-onboarding-web.md](19-first-run-onboarding-web.md) 🆕 | Onboarding web guiado de primeira execução | 4–6 dias | CP18 |
 
 **Regra de ouro (spec §13.8):** o Checkpoint 5 vem **antes** do 6 — o produto já é utilizável de verdade com entrada manual de vagas, sem esperar a descoberta automática.
 
 > O CP17 nasceu de uma sessão de chat indexada (`docs/context/6c7eea4c-71d0-49e7-9f5b-5c374f9b73c6.json`, msgs. 34–35) e está registrado no backlog como item promovido a checkpoint.
+
+> **CP18–CP19 são a sequência pós-CP17:** CP18 cria identidade e isolamento multiusuário; CP19 entrega o onboarding gráfico dentro da webapp. O CP11 concentra a distribuição (binário único, bootstrap mínimo, abertura do navegador e pacote `.deb`), sem configurar funcionalidades do produto no terminal.
 
 ## Artefatos transversais (mantidos desde o início)
 

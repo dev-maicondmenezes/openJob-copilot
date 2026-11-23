@@ -182,6 +182,36 @@
 		anchor.click();
 		URL.revokeObjectURL(objectUrl);
 	}
+
+	async function downloadTailoredTXT() {
+		if (!tailoredMD) return;
+		try {
+			const res = await fetch('/api/curriculum/export?format=txt', {
+				method: 'GET',
+				headers: { 'Accept': 'text/plain' }
+			});
+			if (!res.ok) {
+				const err = await res.json();
+				status = { kind: 'error', text: t('curriculum.error.export', { format: 'txt' }) };
+				return;
+			}
+			const txtContent = await res.text();
+			const blob = new Blob([txtContent], { type: 'text/plain;charset=utf-8' });
+			const objectUrl = URL.createObjectURL(blob);
+			const anchor = document.createElement('a');
+			anchor.href = objectUrl;
+			anchor.download = `curriculo_adaptado_${promptVersion || 'v1'}.txt`;
+			anchor.click();
+			URL.revokeObjectURL(objectUrl);
+		} catch {
+			status = { kind: 'error', text: t('curriculum.error.export_network') };
+		}
+	}
+
+	function downloadTailoredPDF() {
+		if (!tailoredMD) return;
+		window.location.href = `/api/curriculum/export?format=pdf&jd_text=${encodeURIComponent(jdText)}`;
+	}
 </script>
 
 <svelte:head>
@@ -314,7 +344,8 @@
 			<Button variant="secondary" size="sm" onclick={copyTailoredMarkdown}>
 				{copyFeedback ? t('curriculum.result.copied') : t('curriculum.result.copy')}
 			</Button>
-			<Button variant="ghost" size="sm" onclick={downloadTailoredMarkdown}>{t('curriculum.result.download')}</Button>
+			<Button variant="ghost" size="sm" onclick={downloadTailoredTXT}>{t('curriculum.result.download_txt')}</Button>
+			<Button variant="ghost" size="sm" onclick={downloadTailoredPDF}>{t('curriculum.result.download_pdf')}</Button>
 		</div>
 		<div class="diff-container">
 			{#if diffMode === 'diff'}

@@ -339,6 +339,8 @@
   "curriculum.result.copied": "✓ Copied!",
   "curriculum.result.copy": "Copy Markdown",
   "curriculum.result.download": "Download .md",
+  "curriculum.result.download_txt": "Download .txt",
+  "curriculum.result.download_pdf": "Download PDF",
   "curriculum.result.base": "Base Resume",
   "curriculum.result.tailored": "Tailored Resume",
   "curriculum.result.filename": "resume_tailored_{version}.md",

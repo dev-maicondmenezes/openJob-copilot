@@ -339,6 +339,8 @@
   "curriculum.result.copied": "¡✓ Copiado!",
   "curriculum.result.copy": "Copiar Markdown",
   "curriculum.result.download": "Descargar .md",
+  "curriculum.result.download_txt": "Descargar .txt",
+  "curriculum.result.download_pdf": "Descargar PDF",
   "curriculum.result.base": "Currículum Base",
   "curriculum.result.tailored": "Currículum Adaptado",
   "curriculum.result.filename": "curriculum_adaptado_{version}.md",

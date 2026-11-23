@@ -412,7 +412,7 @@ permanece íntegro.
 **Tarefas:**
 - Regressão completa: `make test`, `make vet`, `make test-ui`.
 - Migração: banco novo + upgrade de banco da versão anterior.
-- Instalação limpa: binário único, wizard, Docker Compose e mDNS no celular.
+- Instalação limpa: binário único, bootstrap mínimo, pacote .deb, imagem Docker publicada e Docker Compose; acesso LAN pelo celular.
 - Backup/restore do SQLite e da master key documentados.
 - Revisão de segurança: segredos, logs, redaction, permissões de arquivo.
 - Revisão de acessibilidade final (axe sem violações sérias).
@@ -471,3 +471,15 @@ permanece íntegro.
 4. F3, F4 e F5 — podem ser mescladas em qualquer ordem após F2/F1.
 5. F6 e F7 — somente após os spikes; se no-go, registrar e não bloquear.
 6. F8 — habilitar flags por padrão, validar e taguear o MVP.
+
+
+---
+
+## 16. Evolução pós-MVP — CP18 e CP19
+
+As features seguintes são uma evolução posterior ao escopo congelado deste plano de release; não alteram os gates F0–F8 do MVP.
+
+- **CP18:** identidade, autenticação, isolamento multiusuário, perfil profissional e currículo-base; OAuth somente conforme viabilidade e escopos oficiais.
+- **CP19:** onboarding gráfico de primeira execução na webapp, com validação real e etapas opcionais não bloqueantes.
+
+A distribuição e o bootstrap mínimo permanecem no CP11; a sequência, dependências e critérios de CP18/CP19 ficam em docs/plan/README.md e nos planos individuais.

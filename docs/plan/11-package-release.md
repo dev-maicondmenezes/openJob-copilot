@@ -1,172 +1,191 @@
-# Checkpoint 11 — Empacotamento em binário único, wizard de instalação e release (4–5 dias)
+# Checkpoint 11 — Binário único, bootstrap, distribuição e CI/CD (7–9 dias)
 
-> Origem: spec §13 (distribuição) + README (Quick start atual via Docker). Pré-requisito: **todos os checkpoints anteriores (1–10) concluídos**. Este é o checkpoint de *fechamento*: o openJob deixa de exigir Docker/Compose para o usuário final e passa a ser um **único executável Go** que se auto-configura na primeira execução.
+> Origem: spec §13 (distribuição) + README (Quick start atual via Docker). Pré-requisito: CP1–CP10 concluídos. Este checkpoint entrega os canais oficiais de distribuição do openJob: binário Go, pacote Debian e imagem Docker publicada no Docker Hub.
 
 ## 1. Objetivo
 
-Entregar o openJob como **um único binário Go executável**, sem dependências externas em runtime (sem Docker, sem Node, sem arquivos soltos), contendo:
+Entregar o openJob como aplicação distribuível por:
+- Binário Go único para execução local.
+- Pacote .deb para Linux Debian/Ubuntu.
+- Imagem Docker oficial publicada no catálogo público do Docker Hub.
 
-- O servidor HTTP (API + SPA embutida via `//go:embed`, conforme já decidido no [ADR 0003](0003-adapter-static-spa.md)).
-- O driver SQLite puro-Go (`modernc.org/sqlite`, [ADR 0002](0002-sqlite-driver-modernc.md)) — sem CGO, portanto **cross-compilation viável**.
-- Um **wizard de instalação interativo** (TUI) que roda na primeira execução (ou via subcomando explícito) e guia o usuário pelas configurações mínimas: porta, chave do provedor de IA (BYOK), palavras-chave e filtro de currículo do CP6, token do Telegram do CP7.
-- **Transparência total** ao final do wizard: permissões de rede, portas abertas, limites de uso das APIs de vagas (Remotive 4 req/dia, Remote OK 100 vagas/janela, etc.), custo estimado de LLM (BYOK — o app não cobra nada), e o que **não** faz (sem automação de candidatura no LinkedIn, spec §3.3).
-- Ao final, o wizard oferece **“Executar o openJob agora?”** e, se sim, exibe **duas URLs**: a local (`http://localhost:<porta>`) e a **URL de rede local acessível por dispositivos móveis na mesma rede Wi-Fi** (ex.: `http://192.168.15.X:8080` e/ou `http://openjob.copilot:8080`).
+Os modos de execução têm responsabilidades diferentes:
 
-> **Princípio:** o usuário final nunca deve precisar editar `.env` nem `docker-compose.yml` para o caminho feliz. O wizard escreve a configuração inicial no diretório de dados (`./data/`), que continua sendo o cofre local (master key AES-GCM do CP3).
+- **Binário/.deb:** bootstrap técnico mínimo, inicialização do servidor e abertura do navegador em ambiente gráfico.
+- **Docker:** processo headless/servidor, sem wizard ou bootstrap interativo; toda configuração operacional é fornecida por variáveis de ambiente e volumes persistentes.
+- **Ambos:** o onboarding e as configurações funcionais do produto acontecem na webapp (CP18/CP19), não no terminal nem no entrypoint do container.
 
-## 2. Pré-requisitos
+Entregas:
+- Servidor HTTP e SPA embutida via go:embed, conforme ADR 0003.
+- Driver SQLite puro-Go (modernc.org/sqlite, ADR 0002), sem CGO.
+- Binário único por plataforma, com versão e checksums.
+- Pacote .deb para os alvos Linux Debian/Ubuntu homologados, integrado ao pipeline GoReleaser.
+- Imagem Docker multi-arquitetura (linux/amd64 e linux/arm64, se homologadas), publicada no Docker Hub.
+- Bootstrap mínimo apenas para execução direta do binário/.deb.
+- Configuração Docker por env vars, com volume persistente para banco e master key.
+- Health check, documentação operacional e processo de release reproduzível.
+
+## 2. Limites de responsabilidade
+
+### Pertence ao CP11
+
+- Empacotamento do runtime e assets.
+- Inicialização do servidor e preparação técnica mínima para binário/.deb.
+- Escolha de porta/diretório apenas quando não houver configuração válida, com defaults seguros.
+- Descoberta de IP LAN e abertura do navegador somente no modo desktop do binário.
+- Criar ou validar a master key e o banco no modo binário/.deb, respeitando permissões restritas.
+- Imagem Docker de produção, Dockerfile multi-stage, usuário não-root, health check e volume persistente.
+- Configuração do container por variáveis de ambiente, sem setup interativo.
+- Publicação da imagem no Docker Hub, com tags versionadas e metadados OCI.
+- Distribuição por binário, .deb e imagem Docker; upgrade sem perda de dados e documentação.
+
+### Não pertence ao CP11
+
+- Cadastro/login, usuários, sessões, isolamento de dados ou perfis profissionais: CP18.
+- Importação de currículo e conexões OAuth de perfil: CP18.
+- Onboarding guiado de produto, currículo, fontes, filtros e IA: CP19.
+- Coleta de API keys de LLM, configuração de palavras-chave/filtros, token/chat_id do Telegram ou testes dessas integrações no terminal.
+- Wizard TUI para configurar funcionalidades do produto.
+- Bootstrap interativo, abertura de navegador ou descoberta de IP LAN dentro do container.
+- Auto-update, assinatura/notarização, RPM, MSI, DMG e execução como serviço systemd/launchd/Windows Service.
+
+## 3. Pré-requisitos
 
 - CP1–CP10 concluídos e estáveis.
-- `frontend/` produz `backend/web/dist` via `make build` (já existente).
-- `modernc.org/sqlite` confirmado como driver (ADR 0002) — **sem CGO** é o que permite cross-compile.
-- Mecanismo de cifragem AES-GCM do CP3 reutilizado para qualquer segredo que o wizard coletar (API key do LLM, token do Telegram).
+- frontend produz backend/web/dist via make build.
+- modernc.org/sqlite confirmado como driver; builds de release com CGO_ENABLED=0.
+- Mecanismo AES-GCM do CP3 disponível para a master key e segredos persistidos pela aplicação.
+- Contrato de diretório de dados e configuração compatível com o runtime atual, sem migração silenciosa de dados existentes.
+- Nome definitivo da organização/repositório Docker Hub e credenciais de publicação configuradas como secrets no CI; nunca gravadas no repositório.
 
-## 3. Modelo de dados / artefatos (novo)
+## 4. Comportamento do executável
 
-### 3.1 Subcomandos do binário
-
-O binário passa a ser **subcommand-driven** (como sugerido no padrão de single-binary release):
+### 4.1 Comandos
 
 | Comando | Comportamento |
 |---|---|
-| `openjob` (sem args) | Se `data/config.json` não existir → executa o **wizard**. Se existir → sobe o servidor. |
-| `openjob setup` | Força o wizard (re-configuração). |
-| `openjob serve` | Sobe o servidor sem wizard (falha se não configurado). |
-| `openjob version` | Imprime versão (injetada via `-ldflags -X …version.Version=vX.Y.Z`). |
+| openjob | Prepara bootstrap mínimo se necessário, inicia o servidor e tenta abrir a URL local no navegador. |
+| openjob serve | Inicia o servidor sem tentar abrir navegador; adequado para SSH/headless e execução controlada. |
+| openjob version | Imprime versão injetada no build via ldflags. |
 
-### 3.2 `data/config.json` (bootstrap mínimo)
+Não haverá subcomando setup para reconfigurar IA, descoberta, currículo ou notificações. Essas configurações serão feitas na webapp.
 
-Arquivo **não-secreto** (segredos ficam cifrados no SQLite, como no CP3), com:
+### 4.2 Bootstrap mínimo — somente binário/.deb
 
-- `port` (int), `hostname` (string, default `openjob.copilot`), `lan_ip_hint` (string, opcional).
-- `discovery.{keywords: []string (máx. 5), resume_filter:{...}}` — espelha o CP6 para o wizard poder semear.
-- `llm.{provider, model}` (a **chave** não fica aqui).
-- `telegram.chat_id` (o **token** não fica aqui).
-- `wizard_completed_at` (timestamp) — gate do subcomando `serve`.
+- Usar defaults documentados para porta e diretório de dados; solicitar interação somente quando uma escolha técnica for indispensável e não houver default seguro.
+- Não exigir arquivo .env para o caminho feliz.
+- Criar diretório de dados e master key com permissões restritas; nunca sobrescrever chave ou banco existentes.
+- Inicializar/migrar SQLite usando o mecanismo já existente.
+- Iniciar o servidor e aguardar resposta positiva do health check antes de anunciar que está pronto.
+- Não criar um segundo arquivo de configuração que replique settings persistidos no SQLite. Parâmetros de processo devem vir de flags/env vars, com precedência documentada.
+- Se o bootstrap falhar, apresentar erro acionável e não deixar configuração parcial que impeça nova tentativa.
 
-> **Por que JSON e não só SQLite?** O wizard precisa gravar antes de o SQLite estar inicializado/migrado. `config.json` é o *seed*; na primeira subida do `serve`, ele é lido e os valores sensíveis são migrados para o SQLite cifrado (chaves) e para `settings` (CP6/CP10). Depois disso, a UI de `/settings` passa a ser a fonte da verdade e o `config.json` só é reescrito pelo wizard.
+### 4.3 Rede e navegador — somente binário desktop
 
-### 3.3 Descoberta de IP local (para exibir a URL mobile)
+- Descobrir interfaces e endereços IPv4 privados, excluindo loopback, link-local e interfaces inadequadas, como VPN quando não forem rota de acesso LAN.
+- Exibir URL local (localhost) e URL LAN real, identificando a interface correspondente quando houver mais de uma.
+- Não prometer hostname mDNS quando não houver resolução confirmada; para Android, priorizar URL por IP quando .local não resolver.
+- Abrir URL local no navegador padrão somente após health check positivo.
+- Em SSH/headless, não tentar iniciar navegador; imprimir URLs e instruções.
+- Não abrir portas no firewall, executar sudo ou expor o serviço à internet automaticamente.
+- Avisar que o acesso por celular depende da mesma rede local e das regras de firewall.
 
-- Usar `net.Interfaces()` + `net.InterfaceAddrs()` para listar IPs **não-loopback, não-link-local, IPv4, privados** (RFC 1918).
-- Se houver mais de um (Wi-Fi + Ethernet + VPN), o wizard pergunta qual interface priorizar (dropdown), com default na que tiver rota default (via `net.Dial("udp", "8.8.8.8:80")` + `LocalAddr`, sem enviar pacote).
-- Exibir **duas** URLs móveis: `http://<ip-privado>:<porta>` e, se o mDNS estiver ativo (CP1), `http://<hostname>:<porta>`. Aviso claro: **Android/Chrome não resolve `.local`** (limitação já documentada no README) → para Android, priorizar a URL por IP ou `nip.io`.
+## 5. Empacotamento e release
 
-## 4. Tarefas
+### 5.1 Binário único
 
-### 4.1 Empacotamento single-binary
+- Manter SPA embutida via go:embed; em produção, o binário não depende de backend/web/dist no disco.
+- Confirmar SQLite puro-Go e CGO_ENABLED=0.
+- Gerar binários para linux/amd64, linux/arm64, darwin/amd64, darwin/arm64 e windows/amd64, desde que todos os alvos passem nos smoke tests.
+- Injetar versão via ldflags a partir da tag Git.
+- Anexar checksums SHA-256; assinatura fica fora deste checkpoint.
+- Não exigir tarball; binário individual é o artefato principal.
 
-- **SPA embutida:** manter `//go:embed all:dist` em `backend/web/` (padrão já usado no projeto; o `all:` inclui dot-files). O binário final **não** lê `backend/web/dist` do disco em produção — só em dev via `make run` ou override explícito (ex.: `OPENJOB_WEB_DIST` para debug).
-- **SQLite sem CGO:** confirmar `CGO_ENABLED=0` no build de release. `modernc.org/sqlite` é puro Go; o único ponto de atenção é o tamanho do binário (SQLite puro-Go adiciona alguns MB — aceitável).
-- **Assets do wizard:** o wizard é TUI (`charmbracelet/huh` v2 / `charm.land/huh/v2`), sem assets externos.
-- **Sem tarball obrigatório:** o release anexa o **binário puro** por plataforma + checksums; arquivo compactado é opcional. Seguir o padrão “true single file via `go:embed` — no tarball, no build-tag split”.
-- **Tamanho alvo:** documentar no README o tamanho aproximado por plataforma (referência: binários Go com SPA + SQLite puro costumam ficar na faixa de ~20–35 MB).
+### 5.2 Pacote Debian
 
-### 4.2 Wizard de instalação (TUI)
+- Gerar .deb para linux/amd64 e linux/arm64, se suportados pelo build e pelo ambiente de teste; caso contrário, declarar explicitamente o alvo inicial homologado.
+- Integrar o pacote ao GoReleaser usando nfpm ou mecanismo equivalente já compatível com o pipeline.
+- Instalar executável, metadados e atalho de desktop quando aplicável; não instalar serviço privilegiado nem iniciar servidor automaticamente durante post-install.
+- Definir diretórios, ownership e permissões de configuração/dados/logs sem quebrar o contrato de dados já usado pelo binário.
+- Upgrade deve preservar banco, usuários, currículos, configurações e master key.
+- Remoção padrão deve preservar dados e explicar como removê-los manualmente.
+- Não manter pipeline de release separado para o .deb.
 
-Biblioteca: **`charmbracelet/huh`** (v2, import `charm.land/huh/v2`), que oferece `Input`, `Select`, `MultiSelect`, `Confirm` com tema e modo acessível. Alternativa mantida: `bubbletea` direto se o wizard precisar de telas muito customizadas (não é o caso).
+### 5.3 Imagem Docker e publicação no Docker Hub
 
-Fluxo em **5 grupos** (poucos passos, linguagem direta):
+- Criar Dockerfile multi-stage: build da SPA e backend em estágio de compilação; runtime final mínimo, sem toolchain, Node ou arquivos de desenvolvimento.
+- Executar como usuário não-root; definir WORKDIR, ENTRYPOINT/CMD, porta padrão 8080 e EXPOSE 8080.
+- Não executar wizard, bootstrap interativo, abertura de navegador, detecção de IP LAN ou comandos privilegiados no container.
+- Toda configuração operacional suportada no container deve ser injetável por env vars. Documentar nome, default, validação e precedência. No mínimo, cobrir porta (OPENJOB_PORT), caminho do banco (OPENJOB_DB_PATH) e hostname (OPENJOB_HOSTNAME), além das flags OPENJOB_FEATURE_* existentes.
+- Persistir banco e master key no volume de dados (padrão /data); reiniciar/substituir container não pode perder dados ou gerar nova chave quando já existe uma.
+- Adicionar HEALTHCHECK usando o endpoint /api/health, com intervalo, timeout, retries e start period adequados.
+- Suportar linux/amd64 e linux/arm64 via buildx/manifests multi-platform quando ambos passarem nos testes; não publicar arquitetura sem validação.
+- Publicar no Docker Hub no namespace/repositório oficial definido pelo projeto. O nome final da imagem deve ser único e documentado no README.
+- Publicar tags imutáveis por versão (X.Y.Z e, se adotado, X.Y) e a tag latest somente para releases estáveis; não usar latest como única referência.
+- Incluir labels OCI (org.opencontainers.image.source, revision, version, created, licenses, description) e manter provenance/SBOM se suportados pelo pipeline sem custo operacional desproporcional.
+- Automatizar login/publicação no Docker Hub usando secrets; PRs e builds de branches não publicam no repositório público.
+- Não embutir segredos, credenciais, arquivos .env ou dados pessoais na imagem/camadas.
+- Manter Docker Compose como exemplo de execução local, usando a imagem publicada e volume nomeado para persistência.
 
-1. **Boas-vindas + transparência antecipada** (uma tela de texto):
-   - “O openJob roda **só no seu computador**. Nada é enviado para servidores nossos — não temos servidores.”
-   - “Suas chaves de API ficam **cifradas no seu disco** com uma master key local. Se você perder `data/.master.key`, perde as chaves.”
-   - “O app **não automatiza candidaturas** no LinkedIn. Ele descobre, adapta e pontua — **você aprova e aplica**.”
-2. **Rede**:
-   - Porta (default `8080`, validação de disponibilidade com `net.Listen`).
-   - Hostname mDNS (default `openjob.copilot`, CP1).
-   - Seleção da interface de rede para a URL mobile (se múltiplas).
-3. **Inteligência Artificial (BYOK)**:
-   - Provedor (dropdown: OpenAI, Anthropic, Google Gemini, “outro compatível com OpenAI API”).
-   - API key (campo mascarado com `EchoModePassword`), testada com uma chamada mínima (`/models` ou equivalente) antes de aceitar. Se falhar, oferece “salvar mesmo assim” (para ambientes offline/air-gapped).
-   - Modelo (default por provedor).
-4. **Descoberta de vagas (CP6)**:
-   - Até **5 palavras-chave** (mesma validação dura do CP6: rejeita >5, trim, dedup).
-   - Filtro por currículo: toggle + `min_matches` (default 3) + `match_mode` (`any`/`all`).
-   - Aviso dos limites das fontes: “Remotive limita a ~4 buscas/dia; Remote OK entrega as 100 vagas mais recentes; Jobicy cobre os últimos 7 dias.” — transparência desde o wizard.
-5. **Telegram (CP7, opcional)**:
-   - Token do bot + `chat_id`, com botão **“Enviar mensagem de teste”** embutido no wizard (reutiliza `POST /api/notify/test` do CP7, mas chamado antes de o servidor subir — implementar um `notify.SendTestDirect` que não depende do bus/HTTP).
-   - Se o usuário pular, o CP7 continua funcionando depois via `/settings`.
+### 5.4 CI/CD e publicação por tag Git
 
-**Comportamento transversal do wizard:**
-- **Modo não-interativo (`--yes` / CI):** aceita defaults e variáveis de ambiente (`OPENJOB_*`), permitindo automação de testes e instalações por script.
-- **Acessibilidade:** `.WithAccessible(console.IsAccessibleMode())` no form-level (padrão recomendado pelos mantenedores do `huh`).
-- **Cancelamento seguro:** `Ctrl+C` → pergunta “Sair sem configurar? O app não subirá até você rodar `openjob setup`.” Nenhum arquivo parcial é deixado (escrever `config.json` em `tmp` + rename atômico).
+- Evoluir as GitHub Actions existentes para incorporar Continuous Delivery ao fluxo de CI, preservando a CI atual como gate obrigatório e evitando pipelines concorrentes ou publicação duplicada.
+- Pull requests e pushes em branches continuam executando CI e nunca publicam artefatos. O workflow de release deve depender dos checks aplicáveis do projeto (frontend, backend, testes, vet e build), ampliando a cobertura da CI onde algum desses checks ainda não estiver automatizado.
+- A publicação de uma nova versão será iniciada exclusivamente pelo push de uma nova tag estável no formato `vX.Y.Z` (por exemplo, `v1.2.3`). A tag é a única fonte da versão publicada; não haverá publicação manual ou disparada por push comum na branch principal.
+- O workflow de release deve validar o formato da tag, obter o commit correspondente e executar os gates de CI antes de publicar qualquer artefato. Falha em validação/testes interrompe a distribuição.
+- A partir da mesma tag, o pipeline deve executar o GoReleaser para compilar os binários, gerar checksums e empacotar os arquivos `.deb`, criando/publicando uma GitHub Release no próprio repositório e anexando todos os artefatos gerados.
+- No mesmo fluxo de release, construir e publicar a imagem Docker multi-arquitetura no Docker Hub, com tag correspondente à versão Git (`X.Y.Z`) e `latest` somente para versões estáveis. O commit, a versão e os metadados OCI devem corresponder à GitHub Release.
+- A publicação do `.deb`, da GitHub Release e da imagem Docker deve ser coordenada pelo mesmo evento/tag e usar a mesma versão, sem workflows independentes com versionamento próprio.
+- Atualizar/configurar as actions necessárias para checkout com histórico/tags, setup de Go, GoReleaser, Docker Buildx e autenticação no Docker Hub. Fixar versões das actions utilizadas e revisar permissões mínimas por job.
+- Permissões do job de release: `contents: write` para criar a GitHub Release. Credenciais do Docker Hub devem vir exclusivamente de GitHub Actions Secrets (por exemplo, `DOCKERHUB_USERNAME` e `DOCKERHUB_TOKEN`); nunca usar credenciais em texto claro.
+- Configurar concorrência para impedir duas publicações simultâneas da mesma versão. O workflow deve falhar claramente se a tag já tiver sido publicada com artefatos divergentes; não sobrescrever releases/imagens de versão imutável.
+- Tags de pré-release, se futuramente adotadas, não devem atualizar `latest`; por enquanto, somente tags estáveis `vX.Y.Z` fazem parte do fluxo oficial.
+- Se uma etapa de publicação falhar depois de outra já ter publicado, o workflow deve expor qual artefato foi publicado e qual falhou, permitindo reexecução idempotente sem gerar versões inconsistentes.
+- Não exigir PAT pessoal quando o `GITHUB_TOKEN` com `contents: write` for suficiente para a GitHub Release.
 
-### 4.3 Tela final do wizard (transparência total + URLs)
+### 5.5 Documentação
 
-Após salvar a config, o wizard renderiza um **resumo final** (não só uma pergunta “rodar?”):
+- Atualizar Quick start com três caminhos: binário/.deb, Docker Hub via docker run e Docker Compose.
+- Documentar instalação, execução, atualização, remoção, diretórios de dados, backup/restore e recuperação da master key.
+- Documentar todas as env vars aceitas pela imagem, defaults, validação e exemplo de volume persistente.
+- Documentar acesso local/LAN, firewall e execução headless.
+- Deixar explícito que o primeiro uso funcional continua na webapp; o bootstrap não configura provedores nem integrações.
+- Incluir nome oficial da imagem, tags, arquiteturas suportadas e política de publicação.
 
-**Permissões e limites (explícitos):**
-- “O openJob abrirá a porta **8080** no seu computador, acessível **apenas na sua rede local** (não exposto à internet por padrão).”
-- “Para acessar do celular, o computador e o celular precisam estar **na mesma rede Wi-Fi**.”
-- “Limites das fontes de vagas: Remotive ~4 req/dia; Remote OK 100 vagas/janela; Jobicy últimos 7 dias.”
-- “Custo de IA: **você paga diretamente ao provedor** (BYOK). O openJob não intermedeia nem cobra.”
-- “O que o app **não** faz: automação de candidatura (LinkedIn Easy Apply), scraping de perfis, envio de mensagens em seu nome.”
+## 6. Critérios de verificação
 
-**URLs disponíveis:**
-- **Neste computador:** `http://localhost:<porta>`
-- **Celular / outro dispositivo na mesma rede:** `http://<ip-privado>:<porta>` (e `http://<hostname>:<porta>` se mDNS ativo)
-- Aviso para Android: “No Chrome do Android, use a URL por IP; `.local` não funciona (limitação do Chromium).” (coerente com o README)
+- Executar binário em máquina sem Docker e sem Go; servidor sobe e health check responde.
+- Em desktop, execução padrão abre navegador na URL local somente depois do health check.
+- Em SSH/headless, openjob serve funciona e imprime URLs sem tentar abrir GUI.
+- URL LAN exibida corresponde a interface/IP realmente utilizável; celular na mesma rede acessa a SPA quando firewall permite.
+- Primeira execução do binário/.deb cria diretório, banco e master key com permissões restritas; reexecução preserva dados e não recria segredos.
+- Instalação limpa do .deb em cada alvo homologado funciona sem Docker/Go; upgrade preserva banco e master key; remoção padrão preserva dados.
+- Container inicia sem interação e sem depender de Docker Compose; health check passa.
+- Container roda como não-root; banco e master key permanecem após remoção/recriação do container quando o volume é mantido.
+- Env vars alteram apenas as configurações documentadas, com validação e precedência testadas; nenhuma configuração de produto é exigida no entrypoint.
+- Imagem multi-arquitetura é testada em cada arquitetura publicada; endpoint /api/health funciona.
+- Push de uma tag estável `vX.Y.Z` executa os gates de CI e inicia uma única publicação versionada.
+- A tag gera binários, checksums e `.deb` via GoReleaser e publica uma GitHub Release no próprio repositório com os artefatos anexados.
+- A mesma tag publica a imagem Docker no Docker Hub com versão idêntica e `latest` atualizado somente para release estável.
+- Versão, commit e metadados dos artefatos da GitHub Release e da imagem Docker correspondem entre si.
+- PRs e pushes comuns em branches executam CI, mas não publicam releases, pacotes ou imagens; credenciais não aparecem em logs nem artefatos.
+- Reexecução após falha parcial não sobrescreve silenciosamente artefatos imutáveis nem cria versões divergentes.
+- make test, make vet, make build e smoke tests dos artefatos passam antes da publicação.
+- O fluxo de CD reutiliza as validações de CI e coordena binários, .deb, GitHub Release e imagem Docker sem versionamento ou publicação duplicados.
 
-**Ação final:**
-- `Confirm`: **“Executar o openJob agora?”** → se sim, chama o mesmo caminho de `serve` (sem re-executar o wizard) e imprime as URLs no terminal + log estruturado.
-- Se não, imprime: “Para iniciar depois, rode `openjob serve`.”
+## 7. Registrar
 
-### 4.4 Release e distribuição
+- ADR 0011 — distribuição single-binary, GoReleaser e canais oficiais de distribuição.
+- ADR 0012 — bootstrap mínimo para binário/.deb, execução headless e separação entre inicialização técnica e onboarding web.
+- ADR para imagem Docker oficial: runtime, env vars, persistência, usuário não-root, health check, tags e publicação no Docker Hub.
+- Documentar o contrato CI/CD: tag `vX.Y.Z` como gatilho único, jobs/actions utilizados, permissões, secrets necessários, artefatos da GitHub Release e tags Docker publicadas.
+- Testes para bootstrap idempotente, permissões, health check, detecção de IP, execução headless, abertura de navegador, ciclo de vida do .deb e ciclo de vida do container.
+- Riscos: firewall local, múltiplas interfaces/VPN, diferenças de diretórios entre instalação direta e .deb, persistência de master key, compatibilidade cross-platform, build multi-arquitetura, segurança das credenciais do Docker Hub e falha parcial durante publicação coordenada.
 
-- **GoReleaser** como ferramenta de release (`goreleaser init` → `.goreleaser.yaml` versionado).
-  - Builds: `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`, `windows/amd64` (**sem CGO** em todos, viabilizado pelo `modernc.org/sqlite`).
-  - `ldflags`: injetar `version.Version` a partir da tag Git (`vX.Y.Z`).
-  - Checksums SHA-256 anexados ao release; assinatura (cosign/GPG) como **backlog** (não bloqueia esta CP).
-  - **Sem** `brews`/tap nesta CP (backlog), **sem** Docker Hub obrigatório (Docker continua como canal secundário, mas o código converge para o mesmo `go:embed` — padrão descrito em).
-- **GitHub Actions:** workflow `release.yml` disparado por tag `v*`, roda `goreleaser release --clean` com `GITHUB_TOKEN` (escopo `contents: write`).
-- **Versionamento semântico:** `goreleaser check` valida a tag (`vX.Y.Z`).
-- **Smoke test pós-build:** em CI, baixar o binário `linux/amd64` do release *snapshot* e rodar `openjob version` + `openjob serve --dry-run` (sobe, responde `/api/health`, derruba) — garante que o `go:embed` não quebrou.
+## 8. Fora de escopo
 
-### 4.5 README e documentação de instalação
-
-- Substituir o “Quick start” atual (Docker) por **duas vias**:
-  1. **Binário único (recomendado para usuário final):** baixar da página de releases, `chmod +x openjob`, executar `./openjob` → wizard.
-  2. **Docker (mantido para dev/self-hosting avançado):** `docker compose up -d` (inalterado).
-- Documentar a **master key** (`data/.master.key`) com destaque ainda maior: no fluxo single-binary, o usuário pode não ter o hábito de “fazer backup do volume Docker” — o README deve dizer explicitamente para copiar `data/` (DB + master key).
-- Documentar os **subcomandos** (`setup`, `serve`, `version`) e o modo `--yes`.
-
-## 5. Critérios de verificação
-
-- Baixar o binário `linux/amd64` do release e executar `./openjob` em uma máquina **sem Docker e sem Go** → wizard abre, coleta as 5 etapas, salva `data/config.json`, cria `data/.master.key` + DB, e a tela final exibe as duas URLs.
-- Responder “Sim” em “Executar agora?” → servidor sobe, `GET http://localhost:<porta>/api/health` retorna `200`, SPA abre no navegador do próprio computador.
-- Acessar a **URL por IP** a partir de um celular na mesma Wi-Fi → SPA carrega; `GET /api/health` responde (prova de que a URL mobile exibida é real, não só calculada).
-- Rodar o binário novamente **sem** apagar `data/` → **não** reabre o wizard; sobe direto (`serve`).
-- `openjob setup` → reabre o wizard com os valores atuais pré-preenchidos; alterar a porta reflete na próxima subida.
-- `openjob serve` em diretório sem `config.json` → falha com mensagem clara (“rode `openjob setup` primeiro”), **sem** criar arquivos parciais.
-- `--yes` em ambiente limpo → conclui sem interação, usando defaults + variáveis `OPENJOB_*`; smoke test de `version` e `health` passa.
-- Cancelar o wizard no meio (`Ctrl+C`) → nenhum `config.json` parcial; próxima execução reabre o wizard.
-- **Cross-compile:** `goreleaser release --snapshot --clean` produz os 5 targets sem erro de CGO.
-- **Transparência:** a tela final contém, no mínimo, as 5 afirmações de permissões/limites listadas em §4.3 (teste de snapshot de texto no TUI, se viável; caso contrário, revisão manual documentada no PR).
-
-## 6. Registrar
-
-- **ADR `0011-single-binary-wizard.md`** — decisão de distribuir como binário único com wizard TUI (`huh` v2) como caminho primário, mantendo Docker como canal secundário. Justificativa: elimina a barreira de entrada (Docker/Compose) sem abrir mão do `go:embed` já existente; o SQLite puro-Go permite cross-compile sem CGO. Alternativa rejeitada: instalador nativo por SO (MSI/DMG/deb) — multiplica manutenção por plataforma sem ganho proporcional nesta fase.
-- **ADR `0012-wizard-transparency.md`** — decisão de que a transparência (permissões, limites de fontes, custo BYOK, “o que não faz”) é **parte do produto**, não um README opcional; toda versão do wizard deve exibir o resumo final. Justificativa: alinhamento com spec §3.3 (proibição de automação) e com o caráter local-first do app.
-- **Testes:**
-  - `config.json` atômico (tmp + rename) — matar o processo no meio não deixa arquivo corrompido.
-  - Validação de porta (ocupada → erro claro no wizard).
-  - Descoberta de IP: mock de `net.Interfaces` com múltiplos IPs (Wi-Fi + VPN) → wizard prioriza a interface correta.
-  - `serve` sem config → erro sem efeitos colaterais.
-  - Smoke test do binário no CI (ver §4.4).
-- **Riscos anotados:**
-  - **Firewall do SO:** no Windows/macOS, a primeira execução pode disparar diálogo de firewall; o wizard deve **avisar antecipadamente** (“o SO pode pedir permissão para aceitar conexões na rede local — autorize para usar no celular”). No Linux, `ufw`/`firewalld` podem bloquear a porta — o wizard detecta e sugere o comando, mas **não** executa `sudo` automaticamente.
-  - **Android + `.local`:** limitação do Chromium já conhecida (README) — o wizard **não** promete `.local` para Android; oferece a URL por IP como caminho garantido.
-  - **Tamanho do binário:** SQLite puro-Go + SPA aumenta o artefato; documentar e monitorar no CI (falha se ultrapassar um teto configurado, ex.: 50 MB).
-  - **`huh` v2 e caminhos de import vanity (`charm.land/...`):** a migração de v1 → v2 é recente; fixar a versão e cobrir o wizard com um teste de “renderização headless” (modo acessível) para detectar quebras de API.
-- **Backlog (não nesta CP):** assinatura de binários (cosign/GPG); auto-update; Homebrew tap e pacotes `deb`/`rpm`; instalador gráfico (fora do escopo TUI).
-
-## 7. Fora de escopo (deliberadamente adiado)
-
-- **Auto-update in-app** — exige endpoint de versionamento e verificação de integridade; fica para pós-validação.
-- **Instaladores nativos por SO** (MSI, DMG, `.deb`/`.rpm`) — o binário puro + wizard cobre o caminho feliz nesta fase.
-- **Assinatura/notarização de código** (Apple/Windows) — necessário para distribuição em larga escala, mas não para o público inicial (early adopters que baixam de GitHub Releases).
-- **Serviço systemd/launchd/Windows Service** — o wizard sobe o processo em foreground; rodar como serviço é documentado como opção avançada, não automatizado.
-- **Push/multi-tenant/licenciamento** (spec §13.9) — inalterado.
-- **Automação de candidatura** — permanece proibida (spec §3.3); o wizard reafirma isso explicitamente na tela de transparência.
+- Onboarding de produto e configurações de usuário (CP18/CP19).
+- Auto-update, assinatura/notarização, RPM, MSI e DMG.
+- Serviços systemd/launchd/Windows Service.
+- Orquestração Kubernetes/Helm, Docker Swarm e publicação em registries adicionais.
+- Automação de candidatura ou exposição pública do serviço.

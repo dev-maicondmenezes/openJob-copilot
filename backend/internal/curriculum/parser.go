@@ -166,3 +166,17 @@ func NormalizeToMarkdown(raw string) string {
 
 	return strings.TrimSpace(strings.Join(result, "\n"))
 }
+
+// ErrorMessage returns a user-friendly message for a known curriculum parser error.
+func ErrorMessage(err error) string {
+	switch {
+	case errors.Is(err, ErrUnsupportedFormat):
+		return "Formato de arquivo não suportado. Use .pdf, .md ou .txt."
+	case errors.Is(err, ErrEmptyFile):
+		return "Arquivo vazio. Por favor, envie um arquivo com conteúdo."
+	case errors.Is(err, ErrEmptyPDFText):
+		return "O PDF não contém texto selecionável. Use um PDF com texto ou envie .md/.txt."
+	default:
+		return "Erro ao processar o arquivo. Verifique o formato e tente novamente."
+	}
+}
