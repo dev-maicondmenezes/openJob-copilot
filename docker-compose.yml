@@ -1,17 +1,27 @@
+# openJob — local run with the official image published on Docker Hub (CP11).
+#
+#   docker compose up -d
+#
+# The database and the master key live in the named volume `openjob-data`
+# (/data). Back the volume up as one unit; never commit or share the key.
+# To build from source instead, add the override:
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 services:
   openjob:
-    build: .
-    image: openjob:local
+    # Official image (docs/distribution.md). Pin a version for reproducible
+    # installs, e.g. OPENJOB_IMAGE=maicondmenezes/openjob:1.2.3
+    image: ${OPENJOB_IMAGE:-maicondmenezes/openjob:latest}
     container_name: openjob
-    user: "${OPENJOB_UID:-1000}:${OPENJOB_GID:-1000}"
     ports:
       - "8080:8080"
     environment:
       OPENJOB_PORT: "8080"
       OPENJOB_DB_PATH: /data/openjob.db
-      OPENJOB_HOSTNAME: openjob.copilot
+      OPENJOB_HOSTNAME: ${OPENJOB_HOSTNAME:-openjob.copilot}
+      # Release flags (default off) — see the README for the full list.
+      # OPENJOB_FEATURE_UI_FEED: "true"
     volumes:
-      - ./data:/data
+      - openjob-data:/data
     restart: unless-stopped
 
   # Sidecar: announces openjob.copilot on the LAN via mDNS.
@@ -30,3 +40,6 @@ services:
       HOST: ${OPENJOB_HOSTNAME:-openjob.copilot}
       IP: ${OPENJOB_LAN_IP:-}
     restart: unless-stopped
+
+volumes:
+  openjob-data:

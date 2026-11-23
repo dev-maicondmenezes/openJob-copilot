@@ -1,0 +1,12 @@
+# Contributor override: build the image from this checkout and keep the data in
+# ./data (bind mount, as before CP11) so it is easy to inspect.
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+# The container runs as non-root (uid 65532): make ./data writable for it,
+# e.g.  mkdir -p data && sudo chown 65532:65532 data   (or set OPENJOB_UID/GID).
+services:
+  openjob:
+    build: .
+    image: openjob:local
+    user: "${OPENJOB_UID:-65532}:${OPENJOB_GID:-65532}"
+    volumes: !override
+      - ./data:/data

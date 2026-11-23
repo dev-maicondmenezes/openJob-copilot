@@ -1,4 +1,14 @@
-.PHONY: build build-spa run dev dev-api dev-web test test-ui vet tidy clean
+.PHONY: build build-spa run dev dev-api dev-web test test-ui vet tidy clean \
+	smoke docker-build docker-smoke snapshot
+
+# Build identity injected into internal/version (CP11). Local builds default to
+# "dev"; releases get the real values from GoReleaser / the Docker build args.
+VERSION ?= dev
+COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
+DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+PKG     := github.com/maicondmenezes/openjob/internal/version
+LDFLAGS := -s -w -X $(PKG).Version=$(VERSION) -X $(PKG).Commit=$(COMMIT) -X $(PKG).Date=$(DATE)
+IMAGE   ?= openjob:local
 
 # Dev server completo: Go com hot reload (air) + SPA com HMR (Vite), em paralelo.
 # - SPA em http://localhost:5173 (proxy de /api para o Go, sem CORS)
@@ -37,12 +47,28 @@ build-spa:
 # embedded via //go:embed. SPA first, so the binary always ships fresh assets.
 build: build-spa
 	@echo "==> go build (backend)"
-	(cd backend && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../bin/openjob ./cmd/openjob)
+	(cd backend && CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o ../bin/openjob ./cmd/openjob)
 
 # run starts the server locally (without Docker) on :8080. DB and master key
 # live in ./data (the /data default is the container volume path).
 run: build
-	OPENJOB_PORT=8080 OPENJOB_DB_PATH=./data/openjob.db ./bin/openjob
+	OPENJOB_PORT=8080 OPENJOB_DB_PATH=./data/openjob.db ./bin/openjob serve
+
+# smoke runs the binary smoke test (health, key permissions, restart keeps key).
+smoke: build
+	scripts/smoke-binary.sh bin/openjob
+
+# docker-build builds the official image locally; docker-smoke then exercises it.
+docker-build:
+	docker build --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg DATE=$(DATE) -t $(IMAGE) .
+
+docker-smoke: docker-build
+	scripts/smoke-docker.sh $(IMAGE)
+
+# snapshot builds every release artifact locally without publishing anything
+# (needs goreleaser; the SPA must be built first so it is embedded).
+snapshot: build-spa
+	goreleaser release --snapshot --clean --skip=publish
 
 test: build-spa
 	cd backend && go test ./...
