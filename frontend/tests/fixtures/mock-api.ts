@@ -16,11 +16,66 @@ const job = (id: number) => ({
 	matched_resume_terms: ['SQL']
 });
 
+const preset = (id: string, name: string, baseUrl: string, models: string[], extra: Record<string, unknown> = {}) => ({
+	id,
+	name,
+	base_url: baseUrl,
+	model: models[0],
+	models,
+	free_tier: true,
+	free_note: 'free_rate_limited',
+	key_url: `https://example.com/${id}/keys`,
+	docs_url: `https://example.com/${id}/docs`,
+	requires_key: true,
+	local: false,
+	...extra
+});
+
+const presets = [
+	preset('gemini', 'Google Gemini (AI Studio)', 'https://generativelanguage.googleapis.com/v1beta/openai', [
+		'gemini-2.5-flash',
+		'gemini-2.5-pro'
+	], { key_url: 'https://aistudio.google.com/apikey' }),
+	preset('groq', 'Groq', 'https://api.groq.com/openai/v1', ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant']),
+	preset('openai', 'OpenAI', 'https://api.openai.com/v1', ['gpt-4o-mini', 'gpt-4o'], {
+		free_tier: false,
+		free_note: undefined
+	}),
+	preset('ollama', 'Ollama (local)', 'http://localhost:11434/v1', ['llama3.2'], {
+		requires_key: false,
+		local: true,
+		free_note: 'free_local'
+	})
+];
+
 const responses: Record<string, unknown> = {
 	'/api/features': { ui_feed: true, email_sync: false, curriculum_export: false, score_deterministic: false },
 	'/api/settings': { settings: { locale: 'pt-BR' }, locale: 'pt-BR' },
 	'/api/settings/llm-key': { configured: true },
 	'/api/settings/llm': { configured: true, base_url: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+	'/api/settings/llm/presets': { version: 2, default_id: 'gemini', presets },
+	'/api/settings/llm/profiles': {
+		profiles: [
+			{
+				id: 'p_groq',
+				name: 'Groq',
+				preset_id: 'groq',
+				base_url: 'https://api.groq.com/openai/v1',
+				model: 'llama-3.3-70b-versatile',
+				active: true,
+				local: false
+			},
+			{
+				id: 'p_openai',
+				name: 'OpenAI (trabalho)',
+				preset_id: 'openai',
+				base_url: 'https://api.openai.com/v1',
+				model: 'gpt-4o-mini',
+				active: false,
+				local: false
+			}
+		]
+	},
 	'/api/settings/discovery': {
 		keywords: ['Go', 'Backend'],
 		resume_filter: { enabled: true, min_matches: 2, match_mode: 'any' },
@@ -150,10 +205,26 @@ export async function mockApi(page: Page): Promise<void> {
 	});
 }
 
+/**
+ * Fontes fixas para snapshots determinísticos. O stack de produção usa
+ * system-ui/ui-monospace, que resolve para famílias diferentes por distro;
+ * os testes visuais dependem de Noto Sans e DejaVu Sans Mono no CI.
+ */
+const TEST_FONT_SANS = "'Noto Sans', sans-serif";
+const TEST_FONT_MONO = "'DejaVu Sans Mono', monospace";
+
 /** Navega e espera a hidratação do shell (atalhos e stores prontos). */
 export async function gotoReady(page: Page, path: string): Promise<void> {
 	await page.goto(path);
 	await page.waitForSelector('html[data-app-ready="1"]');
+	await page.evaluate(
+		({ sans, mono }) => {
+			document.documentElement.style.setProperty('--font-sans', sans);
+			document.documentElement.style.setProperty('--font-mono', mono);
+		},
+		{ sans: TEST_FONT_SANS, mono: TEST_FONT_MONO }
+	);
+	await page.evaluate(() => document.fonts.ready);
 }
 
 /** Rotas canônicas usadas por visual/a11y. */

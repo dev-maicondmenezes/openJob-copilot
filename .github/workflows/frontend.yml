@@ -7,7 +7,8 @@ on:
 
 jobs:
   ui:
-    runs-on: ubuntu-latest
+    # Pinado: os snapshots visuais pressupõem fontes e renderização desta imagem.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: frontend
@@ -18,6 +19,10 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      # Fontes dos snapshots visuais: Noto Sans resolve system-ui e DejaVu Sans
+      # Mono resolve ui-monospace. Sem elas o Chromium do runner usa outros
+      # glifos e todos os baselines falham.
+      - run: sudo apt-get update && sudo apt-get install -y fonts-noto-core fonts-dejavu-core
       - run: npm ci
       - run: npm run check
       # CP13: falha se faltar chave em pt-BR/es-419 ou placeholders divergirem.

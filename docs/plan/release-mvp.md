@@ -323,6 +323,34 @@ com seleção do ativo.
 **Gate:** usuário leigo configura uma chave e começa a usar; usuário avançado
 alterna perfis sem reconfigurar.
 
+**Status (2026-11-23): concluída.**
+- **B1:** `/settings` abre em estado de onboarding quando não há provedor, com
+  explicação de BYOK e atalho “Começar de graça”; a chave continua write-only e
+  cifrada em AES-GCM.
+- **B3:** catálogo versionado em `backend/internal/llm/presets.go` exposto por
+  `GET /api/settings/llm/presets`, com `base_url`, modelos disponíveis, link de
+  documentação e link oficial de criação de chave por provedor. A UI consome o
+  catálogo e nunca hardcodeia provedores.
+- **B4:** presets free tier marcados (`free_rate_limited`/`free_local`) com nota
+  honesta de limite e sugestão de modelo gratuito; Ollama/LM Studio não exigem
+  chave.
+- **B2:** tabela `llm_profiles` (migração `0007`) com CRUD, ativação atômica e
+  espelhamento em `llm.*`; migração da config plana para o primeiro perfil é
+  idempotente e a chave nunca é ecoada.
+- UI: lista de perfis com badge “Ativo”, testar/editar/remover por perfil e
+  troca de ativo em um toque. O formulário usa seletor de preset, seletor de
+  modelos do preset (texto simples apenas em “Personalizado”) e card de ajuda
+  do provedor com documentação + criação de chave, oculto no modo custom.
+- i18n: “Personalizado” e todos os textos de perfis/ajuda traduzidos em
+  `pt-BR`, `en-US` e `es-419`.
+- ADR 0036 registra a decisão de perfis cifrados, catálogo versionado e
+  ativação espelhada em `llm.*`.
+- Testes: API de presets/perfis (chave nunca ecoada, validação, ativação e
+  migração), catálogo de presets (modelos/docs), e2e de seletor de modelos,
+  card de ajuda, cadastro e troca de perfil ativo; a11y e snapshots visuais de
+  `/settings` atualizados.
+- Gate e suíte verdes: `make vet`, `make test` e `make test-ui`.
+
 ---
 
 ## 9. Fase 5 — Backend determinístico: B11 (4–6 dias)
