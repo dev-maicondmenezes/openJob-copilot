@@ -91,9 +91,53 @@ type Application struct {
 	ID                   int64
 	JobID                int64
 	TailoredCurriculumMD string
-	Status               string // 'pending' | 'sent' | 'interview' | 'rejected' | 'offer'
+	Status               string // legacy status ('pending' | 'sent' | 'interview' | 'rejected' | 'offer')
+	StageGroup           string // CP17: 'pending' | 'in_process' | 'interview' | 'offer' | 'rejected' | 'closed'
+	StageLabel           string // CP17: granular label e.g. "Desafio técnico"
+	StageUpdatedAt       time.Time
+	StageSource          string // 'manual' | 'email_auto' | 'email_suggested'
 	SentAt               *time.Time
 	UpdatedAt            time.Time
+}
+
+// EmailAccount monitors an inbox for application status updates (CP17).
+type EmailAccount struct {
+	ID            string
+	Provider      string // 'gmail' | 'imap'
+	Address       string
+	AuthConfig    []byte // AES-GCM encrypted
+	Folder        string
+	LastUID       string
+	LastHistoryID string
+	Enabled       bool
+	LastSyncAt    *time.Time
+	LastError     string
+}
+
+// EmailMessage records an ingested email message and its matching/classification (CP17).
+type EmailMessage struct {
+	ID                   string
+	AccountID            string
+	MessageID            string
+	ThreadID             string
+	FromAddress          string
+	FromName             string
+	Subject              string
+	ReceivedAt           time.Time
+	BodyText             string
+	MatchedApplicationID *int64
+	MatchConfidence      float64
+	StageSignal          string // 'ack' | 'screening' | 'interview' | 'assessment' | 'offer' | 'rejection' | 'info_request' | 'other'
+	ClassifiedAt         *time.Time
+	LinkSource           string // 'auto' | 'suggested' | 'manual'
+}
+
+// Tag categorizes applications across namespaces (CP17).
+type Tag struct {
+	ID        int64
+	Namespace string // 'phase', 'company', 'source', 'priority'
+	Value     string
+	Label     string
 }
 
 // NotifyLog records a notification that was actually sent (spec §7).
@@ -200,9 +244,34 @@ type Repository interface {
 	GetApplication(ctx context.Context, id int64) (Application, error)
 	ListApplications(ctx context.Context) ([]Application, error)
 	UpdateApplicationStatus(ctx context.Context, id int64, status string) error
+	UpdateApplicationStage(ctx context.Context, id int64, stageGroup, stageLabel, stageSource string) error
 	// ActiveApplicationForJob guards against duplicated approvals (CP5):
 	// one open candidacy per job, ErrNotFound when the coast is clear.
 	ActiveApplicationForJob(ctx context.Context, jobID int64) (Application, error)
+
+	// email_accounts (CP17)
+	GetEmailAccount(ctx context.Context, id string) (*EmailAccount, error)
+	SaveEmailAccount(ctx context.Context, account EmailAccount) error
+	ListEmailAccounts(ctx context.Context) ([]EmailAccount, error)
+	UpdateEmailAccountCursor(ctx context.Context, id, lastUID, lastHistoryID string, lastSyncAt time.Time, lastError string) error
+
+	// email_messages (CP17)
+	SaveEmailMessage(ctx context.Context, msg EmailMessage) error
+	GetEmailMessage(ctx context.Context, id string) (*EmailMessage, error)
+	GetEmailMessageByMessageID(ctx context.Context, messageID string) (*EmailMessage, error)
+	ListEmailMessagesByApplication(ctx context.Context, appID int64) ([]EmailMessage, error)
+	ListSuggestedEmailMessages(ctx context.Context) ([]EmailMessage, error)
+	LinkEmailMessage(ctx context.Context, messageID string, appID int64, linkSource string) error
+	UnlinkEmailMessage(ctx context.Context, messageID string) error
+	FindApplicationByThreadID(ctx context.Context, threadID string) (*Application, error)
+
+	// tags (CP17)
+	GetOrCreateTag(ctx context.Context, namespace, value, label string) (Tag, error)
+	ListTags(ctx context.Context, namespace string) ([]Tag, error)
+	GetApplicationTags(ctx context.Context, appID int64) ([]Tag, error)
+	SetApplicationTags(ctx context.Context, appID int64, tagIDs []int64) error
+	AddApplicationTag(ctx context.Context, appID int64, tagID int64) error
+	RemoveApplicationTag(ctx context.Context, appID int64, tagID int64) error
 
 	// notify_log
 	InsertNotifyLog(ctx context.Context, n NotifyLog) (int64, error)

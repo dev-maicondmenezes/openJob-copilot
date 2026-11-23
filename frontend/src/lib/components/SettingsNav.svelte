@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { t } from '#lib/i18n/t.js';
-	type Section = 'llm' | 'sources' | 'discovery' | 'notifications' | 'appearance';
+	type Section = 'llm' | 'email' | 'sources' | 'discovery' | 'notifications' | 'appearance';
 
 	interface Props {
 		active?: Section;
@@ -10,6 +10,7 @@
 
 	const links = $derived<{ key: Section; href: string; label: string; icon: string }[]>([
 		{ key: 'llm', href: '/settings', label: t('nav.settings_llm'), icon: 'key' },
+		{ key: 'email', href: '/settings/email', label: t('nav.settings_email'), icon: 'mail' },
 		{ key: 'sources', href: '/settings/sources', label: t('nav.settings_sources'), icon: 'rss' },
 		{ key: 'discovery', href: '/settings/discovery', label: t('nav.settings_discovery'), icon: 'sliders' },
 		{ key: 'notifications', href: '/settings/notifications', label: t('nav.settings_notifications'), icon: 'bell' },

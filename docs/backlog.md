@@ -70,7 +70,7 @@
 - **Depende de:** B2 (perfis) + spike de viabilidade por provedor.
 
 ### B6 — Erros amigáveis sem detalhes internos
-- **Status:** proposto
+- **Status:** ✅ concluído na fase 2 (CP17) — catálogo em `backend/internal/llm/errors.go`
 - **Esforço:** pequeno–médio
 - **Descrição:** mapear falhas de provedor para mensagens de usuário com **causa provável + ação sugerida**, sem expor payloads/stacks internos:
   - 401/403 → "Chave inválida, expirada ou sem permissão para este modelo — gere uma nova em <link do provedor>".
@@ -136,7 +136,7 @@
 ## Tracking & Pipeline de candidaturas (Checkpoint 17)
 
 ### B12 — Atualização automática do status das vagas via e-mail
-- **Status:** ✅ promovido a checkpoint — ver [17-email-tracking-pipeline.md](plan/17-email-tracking-pipeline.md)
+- **Status:** ✅ concluído na fase 2 (CP17) — ver [17-email-tracking-pipeline.md](plan/17-email-tracking-pipeline.md)
 - **Esforço:** grande (6–8 dias)
 - **Descrição:** ler automaticamente o e-mail informado no currículo (Gmail OAuth read-only ou IMAP) e atualizar o estágio das candidaturas a partir das respostas dos recrutadores/ATSs. Inclui:
   - **Conector de e-mail** com sync incremental (Gmail `history.list` / IMAP `UID > last_uid`) e polling local-first (sem Pub/Sub nem webhook público).

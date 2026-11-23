@@ -20,6 +20,7 @@ const (
 	TypeExtractResumeKeywords = "extract_resume_keywords"
 	TypeTailorResume          = "tailor_resume"
 	TypeDiscoverSources       = "discover_sources" // CP14: queued discovery runs
+	TypeSyncEmail             = "sync_email"       // CP17: email pipeline sync
 )
 
 // Handler runs one task type. Handlers MUST check ctx between steps: a

@@ -223,6 +223,38 @@ automação de candidatura, criação de eventos de calendário.
 LLM na cauda (vocabulário fechado + revisão), OAuth do Gmail exigir app no Google
 Cloud (documentar criação do client_id; IMAP como alternativa).
 
+**Status (2026-11-23): concluída.**
+- Migração `0006_email_tracking.sql` cria `email_accounts`, `email_messages`,
+  `tags` e `application_tags`, e adiciona `stage_group`, `stage_label`,
+  `stage_updated_at` e `stage_source` a `applications` (migrando
+  `sent → in_process`).
+- Conectores Gmail (OAuth read-only via `users.history.list`, com fallback para
+  listagem completa) e IMAP (`emersion/go-imap` v2, cursor `UID > last_uid` e
+  parser MIME); credenciais cifradas em AES-256-GCM.
+- Cascata de matching thread → nome da empresa → allowlist de ATS → domínio
+  corporativo → LLM na cauda; classificador com vocabulário fechado (8 sinais)
+  e regras PT/EN/ES; dedup por `Message-ID`; avanço monotônico apenas com
+  confiança ≥ 0.8 (ADRs 0032–0035).
+- Handler `sync_email` no pool do CP10 com progresso (`emails_fetched`,
+  `matched`, `advanced`, `suggested`); ticker opt-in (`email.sync_interval`,
+  padrão 5 min, inativo até uma conta ser habilitada) e sincronização manual em
+  `/settings/email`.
+- API: `GET/PUT /api/settings/email`, `POST /api/settings/email/test`,
+  `POST /api/settings/email/sync`, `GET /api/email/messages`,
+  `POST /api/email/messages/{id}/link|unlink`, `GET/POST /api/tags` e
+  `PATCH /api/applications/{id}` com `stage_group`, `stage_label` e `tag_ids`.
+- UI: pipeline com as 6 colunas (coluna “Em processo” mais larga), chips de tags,
+  filtro por tag, banner de sugestões com confirmar/descartar, drawer com
+  e-mails vinculados e `/settings/email` (IMAP/Gmail, status e aviso de
+  privacidade).
+- B6: catálogo `internal/llm/errors.go` com os códigos do ADR 0021 e mensagens
+  amigáveis + ação sugerida para 401/403, 404, 429, 5xx, timeout, rede, decrypt
+  e não configurado, reutilizando `internal/llm/redact.go`.
+- Testes: fixtures de matching/classificação, monotonicidade, dedup, sync
+  incremental, API de e-mail/tags, scheduler e migração; e2e CP17 (sugestão,
+  tags e settings) e a11y/visual de `/settings/email`.
+- Gate e suíte verdes: `make vet`, `make test` e `make test-ui`.
+
 ---
 
 ## 7. Fase 3 — Currículo: B10 + B8 + B9 (2–4 dias)

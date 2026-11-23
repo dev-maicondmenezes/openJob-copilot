@@ -321,8 +321,11 @@ func (j *jobsAPI) scoreJob(w http.ResponseWriter, r *http.Request) {
 				"error": fmt.Sprintf("A IA respondeu em um formato inesperado. Tente novamente. (%s)", score.ParseErrorDetail(err)),
 			})
 		default:
-			writeJSON(w, http.StatusBadGateway, map[string]string{
-				"error": fmt.Sprintf("Falha ao calcular score pelo provedor de IA: %v", err),
+			fe := llm.ClassifyError(err, cfg.APIKey)
+			writeJSON(w, fe.HTTPStatus, map[string]any{
+				"error":      fe.Message,
+				"code":       fe.Code,
+				"suggestion": fe.Suggestion,
 			})
 		}
 		// score_fit permanece NULL — nada foi persistido.
@@ -453,13 +456,33 @@ func (j *jobsAPI) listApplications(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]map[string]any, 0, len(apps))
 	for _, app := range apps {
+		stageGroup := app.StageGroup
+		if stageGroup == "" {
+			if app.Status == "sent" {
+				stageGroup = "in_process"
+			} else if app.Status != "" {
+				stageGroup = app.Status
+			} else {
+				stageGroup = "pending"
+			}
+		}
+		appTags, _ := j.repo.GetApplicationTags(r.Context(), app.ID)
+		if appTags == nil {
+			appTags = []store.Tag{}
+		}
+
 		item := map[string]any{
-			"id":           app.ID,
-			"job_id":       app.JobID,
-			"status":       app.Status,
-			"sent_at":      nil,
-			"updated_at":   app.UpdatedAt,
-			"has_tailored": app.TailoredCurriculumMD != "",
+			"id":               app.ID,
+			"job_id":           app.JobID,
+			"status":           app.Status,
+			"stage_group":      stageGroup,
+			"stage_label":      app.StageLabel,
+			"stage_source":     app.StageSource,
+			"stage_updated_at": app.StageUpdatedAt,
+			"tags":             appTags,
+			"sent_at":          nil,
+			"updated_at":       app.UpdatedAt,
+			"has_tailored":     app.TailoredCurriculumMD != "",
 		}
 		if app.SentAt != nil {
 			item["sent_at"] = app.SentAt
@@ -478,6 +501,16 @@ func (j *jobsAPI) listApplications(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---- PATCH /api/applications/:id (CP10 producer) -------------------------------
+
+// validStageGroups represents CP17 pipeline stage groups.
+var validStageGroups = map[string]bool{
+	"pending":    true,
+	"in_process": true,
+	"interview":  true,
+	"offer":      true,
+	"rejected":   true,
+	"closed":     true,
+}
 
 // validApplicationStatuses is the CP5 pipeline enum.
 var validApplicationStatuses = map[string]bool{
@@ -498,16 +531,39 @@ func (j *jobsAPI) updateApplicationStatus(w http.ResponseWriter, r *http.Request
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxSettingsBody)
 	var req struct {
-		Status string `json:"status"`
+		Status      string  `json:"status"`
+		StageGroup  string  `json:"stage_group"`
+		StageLabel  string  `json:"stage_label"`
+		StageSource string  `json:"stage_source"`
+		TagIDs      []int64 `json:"tag_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_json", "invalid JSON", nil)
 		return
 	}
 	req.Status = strings.TrimSpace(req.Status)
-	if !validApplicationStatuses[req.Status] {
+	req.StageGroup = strings.TrimSpace(req.StageGroup)
+
+	targetStageGroup := req.StageGroup
+	if targetStageGroup == "" && req.Status != "" {
+		if req.Status == "sent" {
+			targetStageGroup = "in_process"
+		} else {
+			targetStageGroup = req.Status
+		}
+	}
+
+	if !validStageGroups[targetStageGroup] && !validApplicationStatuses[req.Status] {
 		writeAPIError(w, http.StatusBadRequest, "application.invalid_status", "invalid status", nil)
 		return
+	}
+	if !validStageGroups[targetStageGroup] {
+		targetStageGroup = "in_process"
+	}
+
+	stageSource := strings.TrimSpace(req.StageSource)
+	if stageSource == "" {
+		stageSource = "manual"
 	}
 
 	ctx := r.Context()
@@ -522,10 +578,18 @@ func (j *jobsAPI) updateApplicationStatus(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := j.repo.UpdateApplicationStatus(ctx, appID, req.Status); err != nil {
-		j.logger.Error("update application status failed", "id", appID, "err", err)
+	// Update stage in database
+	if err := j.repo.UpdateApplicationStage(ctx, appID, targetStageGroup, req.StageLabel, stageSource); err != nil {
+		j.logger.Error("update application stage failed", "id", appID, "err", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao atualizar status da candidatura"})
 		return
+	}
+
+	// Update tags if provided
+	if req.TagIDs != nil {
+		if err := j.repo.SetApplicationTags(ctx, appID, req.TagIDs); err != nil {
+			j.logger.Warn("update application tags failed", "id", appID, "err", err)
+		}
 	}
 
 	jobLabel := fmt.Sprintf("Vaga #%d", app.JobID)
@@ -534,33 +598,49 @@ func (j *jobsAPI) updateApplicationStatus(w http.ResponseWriter, r *http.Request
 		jobLabel = fmt.Sprintf("%s @ %s", job.Title, job.Company)
 	}
 
-	if app.Status != req.Status && j.bus != nil {
+	if (app.StageGroup != targetStageGroup || app.Status != req.Status) && j.bus != nil {
+		fromStatus := app.StageGroup
+		if fromStatus == "" {
+			fromStatus = app.Status
+		}
 		j.bus.Publish(events.Event{
 			Kind:     events.KindApplicationStatusChanged,
 			Severity: events.SeverityInfo,
 			Title:    "Candidatura atualizada",
-			Body:     fmt.Sprintf("%s: %s → %s", jobLabel, app.Status, req.Status),
+			Body:     fmt.Sprintf("%s: %s → %s", jobLabel, fromStatus, targetStageGroup),
 			Link:     "/applications",
 			Metadata: map[string]any{
 				"application_id": appID,
 				"job_id":         app.JobID,
 				"job_label":      jobLabel,
-				"from":           app.Status,
-				"to":             req.Status,
+				"from":           fromStatus,
+				"to":             targetStageGroup,
+				"status":         targetStageGroup,
+				"stage_group":    targetStageGroup,
 			},
 		})
 	}
 
 	updated, err := j.repo.GetApplication(ctx, appID)
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"id": appID, "status": req.Status})
+		writeJSON(w, http.StatusOK, map[string]any{"id": appID, "status": targetStageGroup, "stage_group": targetStageGroup})
 		return
 	}
+	appTags, _ := j.repo.GetApplicationTags(ctx, appID)
+	if appTags == nil {
+		appTags = []store.Tag{}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":         updated.ID,
-		"job_id":     updated.JobID,
-		"status":     updated.Status,
-		"updated_at": updated.UpdatedAt,
+		"id":               updated.ID,
+		"job_id":           updated.JobID,
+		"status":           updated.Status,
+		"stage_group":      updated.StageGroup,
+		"stage_label":      updated.StageLabel,
+		"stage_source":     updated.StageSource,
+		"stage_updated_at": updated.StageUpdatedAt,
+		"tags":             appTags,
+		"updated_at":       updated.UpdatedAt,
 	})
 }
 

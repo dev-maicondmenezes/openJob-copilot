@@ -299,22 +299,33 @@ func (s *SQLiteStore) CreateApplication(ctx context.Context, a Application) (int
 	if a.Status == "" {
 		a.Status = "pending"
 	}
+	if a.StageGroup == "" {
+		if a.Status == "sent" {
+			a.StageGroup = "in_process"
+		} else {
+			a.StageGroup = a.Status
+		}
+	}
+	if a.StageSource == "" {
+		a.StageSource = "manual"
+	}
+	now := nowUTC()
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO applications (job_id, tailored_curriculum_md, status, sent_at, updated_at)
-		VALUES (?, ?, ?, ?, ?)`,
-		a.JobID, a.TailoredCurriculumMD, a.Status, nullableTime(a.SentAt), nowUTC())
+		INSERT INTO applications (job_id, tailored_curriculum_md, status, sent_at, updated_at, stage_group, stage_label, stage_updated_at, stage_source)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.JobID, a.TailoredCurriculumMD, a.Status, nullableTime(a.SentAt), now, a.StageGroup, a.StageLabel, now, a.StageSource)
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
 }
 
-const appCols = `id, job_id, COALESCE(tailored_curriculum_md, ''), status, COALESCE(sent_at, ''), updated_at`
+const appCols = `id, job_id, COALESCE(tailored_curriculum_md, ''), status, COALESCE(sent_at, ''), updated_at, COALESCE(stage_group, 'pending'), COALESCE(stage_label, ''), COALESCE(stage_updated_at, updated_at), COALESCE(stage_source, 'manual')`
 
 func scanApplication(scan func(dest ...any) error) (Application, error) {
 	var a Application
-	var sent, updated string
-	if err := scan(&a.ID, &a.JobID, &a.TailoredCurriculumMD, &a.Status, &sent, &updated); err != nil {
+	var sent, updated, stageUpdated string
+	if err := scan(&a.ID, &a.JobID, &a.TailoredCurriculumMD, &a.Status, &sent, &updated, &a.StageGroup, &a.StageLabel, &stageUpdated, &a.StageSource); err != nil {
 		return a, err
 	}
 	if sent != "" {
@@ -322,6 +333,12 @@ func scanApplication(scan func(dest ...any) error) (Application, error) {
 		a.SentAt = &t
 	}
 	a.UpdatedAt, _ = parseUTC(updated)
+	if stageUpdated != "" {
+		t, _ := parseUTC(stageUpdated)
+		a.StageUpdatedAt = t
+	} else {
+		a.StageUpdatedAt = a.UpdatedAt
+	}
 	return a, nil
 }
 
@@ -352,39 +369,66 @@ func (s *SQLiteStore) ListApplications(ctx context.Context) ([]Application, erro
 	return apps, rows.Err()
 }
 
-// UpdateApplicationStatus changes the pipeline status; the first transition
-// to 'sent' stamps sent_at (spec §7).
-func (s *SQLiteStore) UpdateApplicationStatus(ctx context.Context, id int64, status string) error {
+func (s *SQLiteStore) updateApplicationPipeline(ctx context.Context, id int64, status, stageGroup, stageLabel, stageSource string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var current string
+	var currentStatus, currentStage string
+	var sentAt sql.NullString
 	if err := tx.QueryRowContext(ctx,
-		`SELECT status FROM applications WHERE id = ?`, id).Scan(&current); err != nil {
+		`SELECT status, COALESCE(stage_group, 'pending'), COALESCE(sent_at, '') FROM applications WHERE id = ?`, id).
+		Scan(&currentStatus, &currentStage, &sentAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
 		return err
 	}
 
-	if status == "sent" && current != "sent" {
-		if _, err := tx.ExecContext(ctx, `
+	now := nowUTC()
+	shouldStampSent := (status == "sent" || stageGroup == "in_process") && (!sentAt.Valid || sentAt.String == "")
+
+	var query string
+	var args []any
+	if shouldStampSent {
+		query = `
 			UPDATE applications
-			SET status = ?, sent_at = COALESCE(sent_at, ?), updated_at = ?
-			WHERE id = ?`, status, nowUTC(), nowUTC(), id); err != nil {
-			return err
-		}
+			SET status = ?, stage_group = ?, stage_label = ?, stage_updated_at = ?, stage_source = ?, sent_at = ?, updated_at = ?
+			WHERE id = ?`
+		args = []any{status, stageGroup, stageLabel, now, stageSource, now, now, id}
 	} else {
-		if _, err := tx.ExecContext(ctx,
-			`UPDATE applications SET status = ?, updated_at = ? WHERE id = ?`,
-			status, nowUTC(), id); err != nil {
-			return err
-		}
+		query = `
+			UPDATE applications
+			SET status = ?, stage_group = ?, stage_label = ?, stage_updated_at = ?, stage_source = ?, updated_at = ?
+			WHERE id = ?`
+		args = []any{status, stageGroup, stageLabel, now, stageSource, now, id}
+	}
+
+	if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+		return err
 	}
 	return tx.Commit()
+}
+
+// UpdateApplicationStatus changes the pipeline status; the first transition
+// to 'sent' stamps sent_at (spec §7).
+func (s *SQLiteStore) UpdateApplicationStatus(ctx context.Context, id int64, status string) error {
+	stageGroup := status
+	if status == "sent" {
+		stageGroup = "in_process"
+	}
+	return s.updateApplicationPipeline(ctx, id, status, stageGroup, "", "manual")
+}
+
+// UpdateApplicationStage changes the pipeline stage_group and stage_label (CP17).
+func (s *SQLiteStore) UpdateApplicationStage(ctx context.Context, id int64, stageGroup, stageLabel, stageSource string) error {
+	legacyStatus := stageGroup
+	if stageGroup == "in_process" {
+		legacyStatus = "sent"
+	}
+	return s.updateApplicationPipeline(ctx, id, legacyStatus, stageGroup, stageLabel, stageSource)
 }
 
 // ---- notify_log ---------------------------------------------------------
@@ -694,6 +738,331 @@ func (s *SQLiteStore) LatestDiscoveryRun(ctx context.Context) (DiscoveryRun, err
 		return r, ErrNotFound
 	}
 	return r, err
+}
+
+// ---- email_accounts (CP17) ---------------------------------------------
+
+const emailAccountCols = `id, provider, address, auth_config, folder, COALESCE(last_uid, ''), COALESCE(last_history_id, ''), enabled, COALESCE(last_sync_at, ''), COALESCE(last_error, '')`
+
+func scanEmailAccount(scan func(dest ...any) error) (EmailAccount, error) {
+	var a EmailAccount
+	var lastSync string
+	var enabledInt int
+	if err := scan(&a.ID, &a.Provider, &a.Address, &a.AuthConfig, &a.Folder, &a.LastUID, &a.LastHistoryID, &enabledInt, &lastSync, &a.LastError); err != nil {
+		return a, err
+	}
+	a.Enabled = enabledInt != 0
+	if lastSync != "" {
+		if t, err := parseUTC(lastSync); err == nil {
+			a.LastSyncAt = &t
+		}
+	}
+	return a, nil
+}
+
+func (s *SQLiteStore) GetEmailAccount(ctx context.Context, id string) (*EmailAccount, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+emailAccountCols+` FROM email_accounts WHERE id = ?`, id)
+	a, err := scanEmailAccount(row.Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+func (s *SQLiteStore) SaveEmailAccount(ctx context.Context, a EmailAccount) error {
+	enabledInt := 0
+	if a.Enabled {
+		enabledInt = 1
+	}
+	if a.Folder == "" {
+		a.Folder = "INBOX"
+	}
+	if a.AuthConfig == nil {
+		a.AuthConfig = []byte{}
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO email_accounts (id, provider, address, auth_config, folder, last_uid, last_history_id, enabled, last_sync_at, last_error)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			provider = excluded.provider,
+			address = excluded.address,
+			auth_config = CASE WHEN length(excluded.auth_config) > 0 THEN excluded.auth_config ELSE email_accounts.auth_config END,
+			folder = excluded.folder,
+			enabled = excluded.enabled,
+			last_error = excluded.last_error`,
+		a.ID, a.Provider, a.Address, a.AuthConfig, a.Folder, a.LastUID, a.LastHistoryID, enabledInt, nullableTime(a.LastSyncAt), a.LastError)
+	return err
+}
+
+func (s *SQLiteStore) ListEmailAccounts(ctx context.Context) ([]EmailAccount, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+emailAccountCols+` FROM email_accounts ORDER BY id ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var accounts []EmailAccount
+	for rows.Next() {
+		a, err := scanEmailAccount(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		accounts = append(accounts, a)
+	}
+	return accounts, rows.Err()
+}
+
+func (s *SQLiteStore) UpdateEmailAccountCursor(ctx context.Context, id, lastUID, lastHistoryID string, lastSyncAt time.Time, lastError string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE email_accounts
+		SET last_uid = CASE WHEN ? != '' THEN ? ELSE last_uid END,
+		    last_history_id = CASE WHEN ? != '' THEN ? ELSE last_history_id END,
+		    last_sync_at = ?,
+		    last_error = ?
+		WHERE id = ?`,
+		lastUID, lastUID, lastHistoryID, lastHistoryID, lastSyncAt, lastError, id)
+	return err
+}
+
+// ---- email_messages (CP17) ---------------------------------------------
+
+const emailMessageCols = `id, account_id, message_id, COALESCE(thread_id, ''), from_address, COALESCE(from_name, ''), COALESCE(subject, ''), received_at, COALESCE(body_text, ''), matched_application_id, match_confidence, COALESCE(stage_signal, ''), COALESCE(classified_at, ''), COALESCE(link_source, '')`
+
+func scanEmailMessage(scan func(dest ...any) error) (EmailMessage, error) {
+	var m EmailMessage
+	var received, classified string
+	var appID sql.NullInt64
+	if err := scan(&m.ID, &m.AccountID, &m.MessageID, &m.ThreadID, &m.FromAddress, &m.FromName, &m.Subject, &received, &m.BodyText, &appID, &m.MatchConfidence, &m.StageSignal, &classified, &m.LinkSource); err != nil {
+		return m, err
+	}
+	if appID.Valid {
+		v := appID.Int64
+		m.MatchedApplicationID = &v
+	}
+	if received != "" {
+		t, _ := parseUTC(received)
+		m.ReceivedAt = t
+	}
+	if classified != "" {
+		if t, err := parseUTC(classified); err == nil {
+			m.ClassifiedAt = &t
+		}
+	}
+	return m, nil
+}
+
+func (s *SQLiteStore) SaveEmailMessage(ctx context.Context, msg EmailMessage) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO email_messages (
+			id, account_id, message_id, thread_id, from_address, from_name, subject,
+			received_at, body_text, matched_application_id, match_confidence, stage_signal, classified_at, link_source
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(message_id) DO UPDATE SET
+			thread_id = excluded.thread_id,
+			matched_application_id = excluded.matched_application_id,
+			match_confidence = excluded.match_confidence,
+			stage_signal = excluded.stage_signal,
+			classified_at = excluded.classified_at,
+			link_source = excluded.link_source`,
+		msg.ID, msg.AccountID, msg.MessageID, msg.ThreadID, msg.FromAddress, msg.FromName, msg.Subject,
+		msg.ReceivedAt, msg.BodyText, msg.MatchedApplicationID, msg.MatchConfidence, msg.StageSignal,
+		nullableTime(msg.ClassifiedAt), msg.LinkSource)
+	return err
+}
+
+func (s *SQLiteStore) GetEmailMessage(ctx context.Context, id string) (*EmailMessage, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+emailMessageCols+` FROM email_messages WHERE id = ?`, id)
+	m, err := scanEmailMessage(row.Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+func (s *SQLiteStore) GetEmailMessageByMessageID(ctx context.Context, messageID string) (*EmailMessage, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+emailMessageCols+` FROM email_messages WHERE message_id = ?`, messageID)
+	m, err := scanEmailMessage(row.Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+func (s *SQLiteStore) ListEmailMessagesByApplication(ctx context.Context, appID int64) ([]EmailMessage, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+emailMessageCols+` FROM email_messages WHERE matched_application_id = ? ORDER BY received_at DESC`, appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var msgs []EmailMessage
+	for rows.Next() {
+		m, err := scanEmailMessage(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		msgs = append(msgs, m)
+	}
+	return msgs, rows.Err()
+}
+
+func (s *SQLiteStore) ListSuggestedEmailMessages(ctx context.Context) ([]EmailMessage, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+emailMessageCols+` FROM email_messages WHERE matched_application_id IS NOT NULL AND link_source = 'suggested' ORDER BY received_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var msgs []EmailMessage
+	for rows.Next() {
+		m, err := scanEmailMessage(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		msgs = append(msgs, m)
+	}
+	return msgs, rows.Err()
+}
+
+func (s *SQLiteStore) LinkEmailMessage(ctx context.Context, messageID string, appID int64, linkSource string) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE email_messages
+		SET matched_application_id = ?, link_source = ?
+		WHERE message_id = ? OR id = ?`, appID, linkSource, messageID, messageID)
+	if err != nil {
+		return err
+	}
+	return ensureRow(res)
+}
+
+func (s *SQLiteStore) UnlinkEmailMessage(ctx context.Context, messageID string) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE email_messages
+		SET matched_application_id = NULL, link_source = NULL
+		WHERE message_id = ? OR id = ?`, messageID, messageID)
+	if err != nil {
+		return err
+	}
+	return ensureRow(res)
+}
+
+func (s *SQLiteStore) FindApplicationByThreadID(ctx context.Context, threadID string) (*Application, error) {
+	if threadID == "" {
+		return nil, ErrNotFound
+	}
+	var appID int64
+	err := s.db.QueryRowContext(ctx, `
+		SELECT matched_application_id FROM email_messages
+		WHERE thread_id = ? AND matched_application_id IS NOT NULL
+		LIMIT 1`, threadID).Scan(&appID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	app, err := s.GetApplication(ctx, appID)
+	if err != nil {
+		return nil, err
+	}
+	return &app, nil
+}
+
+// ---- tags (CP17) -------------------------------------------------------
+
+func (s *SQLiteStore) GetOrCreateTag(ctx context.Context, namespace, value, label string) (Tag, error) {
+	var tag Tag
+	err := s.db.QueryRowContext(ctx, `
+		INSERT INTO tags (namespace, value, label)
+		VALUES (?, ?, ?)
+		ON CONFLICT(namespace, value) DO UPDATE SET label = excluded.label
+		RETURNING id, namespace, value, label`, namespace, value, label).
+		Scan(&tag.ID, &tag.Namespace, &tag.Value, &tag.Label)
+	return tag, err
+}
+
+func (s *SQLiteStore) ListTags(ctx context.Context, namespace string) ([]Tag, error) {
+	var rows *sql.Rows
+	var err error
+	if namespace != "" {
+		rows, err = s.db.QueryContext(ctx, `SELECT id, namespace, value, label FROM tags WHERE namespace = ? ORDER BY value ASC`, namespace)
+	} else {
+		rows, err = s.db.QueryContext(ctx, `SELECT id, namespace, value, label FROM tags ORDER BY namespace ASC, value ASC`)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tags []Tag
+	for rows.Next() {
+		var t Tag
+		if err := rows.Scan(&t.ID, &t.Namespace, &t.Value, &t.Label); err != nil {
+			return nil, err
+		}
+		tags = append(tags, t)
+	}
+	return tags, rows.Err()
+}
+
+func (s *SQLiteStore) GetApplicationTags(ctx context.Context, appID int64) ([]Tag, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT t.id, t.namespace, t.value, t.label
+		FROM tags t
+		JOIN application_tags at ON t.id = at.tag_id
+		WHERE at.application_id = ?
+		ORDER BY t.namespace ASC, t.value ASC`, appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tags []Tag
+	for rows.Next() {
+		var t Tag
+		if err := rows.Scan(&t.ID, &t.Namespace, &t.Value, &t.Label); err != nil {
+			return nil, err
+		}
+		tags = append(tags, t)
+	}
+	return tags, rows.Err()
+}
+
+func (s *SQLiteStore) SetApplicationTags(ctx context.Context, appID int64, tagIDs []int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM application_tags WHERE application_id = ?`, appID); err != nil {
+		return err
+	}
+	for _, tid := range tagIDs {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO application_tags (application_id, tag_id) VALUES (?, ?)`, appID, tid); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *SQLiteStore) AddApplicationTag(ctx context.Context, appID int64, tagID int64) error {
+	_, err := s.db.ExecContext(ctx, `INSERT OR IGNORE INTO application_tags (application_id, tag_id) VALUES (?, ?)`, appID, tagID)
+	return err
+}
+
+func (s *SQLiteStore) RemoveApplicationTag(ctx context.Context, appID int64, tagID int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM application_tags WHERE application_id = ? AND tag_id = ?`, appID, tagID)
+	return err
 }
 
 // ---- helpers ------------------------------------------------------------

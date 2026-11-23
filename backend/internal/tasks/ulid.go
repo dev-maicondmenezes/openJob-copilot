@@ -25,6 +25,11 @@ var (
 	ulidLast uint64 // last ms timestamp issued; monotonic guard
 )
 
+// NewULID returns a new ULID string.
+func NewULID() string {
+	return newULID()
+}
+
 // newULID returns a new ULID string. Concurrent calls are serialized to keep
 // monotonicity of the timestamp component.
 func newULID() string {
