@@ -1,0 +1,197 @@
+# CI — backend, packaging and Docker gates (CP11 §5.4).
+#
+# Runs on PRs and pushes to main, and is ALSO called by release.yml
+# (workflow_call) so the release reuses exactly these gates instead of
+# duplicating them. It never publishes anything: no registry login, no release.
+# Frontend checks live in frontend.yml (also reusable).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CI_VERSION: 0.0.0-ci
+
+jobs:
+  # The SPA is built once and shared: the Go binary embeds backend/web/dist.
+  spa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: spa-dist
+          path: backend/web/dist
+          retention-days: 1
+
+  backend:
+    needs: spa
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: spa-dist
+          path: backend/web/dist
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: vet
+        run: go vet ./...
+        working-directory: backend
+      - name: test
+        run: go test ./... -count=1
+        working-directory: backend
+      - name: cross-compile every release target (CGO off)
+        working-directory: backend
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            echo "building $t"
+            GOOS=${t%/*} GOARCH=${t#*/} go build -trimpath -o /dev/null ./cmd/openjob
+          done
+
+  # Smoke the real binary on every OS we ship for, on a machine that runs it
+  # natively (darwin/amd64 under Rosetta on the arm64 runner).
+  smoke-binary:
+    needs: spa
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-amd64, os: ubuntu-latest, goos: linux, goarch: amd64, ext: "", prefix: "" }
+          - { name: darwin-arm64, os: macos-latest, goos: darwin, goarch: arm64, ext: "", prefix: "" }
+          - { name: darwin-amd64 (rosetta), os: macos-latest, goos: darwin, goarch: amd64, ext: "", prefix: "arch -x86_64" }
+          - { name: windows-amd64, os: windows-latest, goos: windows, goarch: amd64, ext: ".exe", prefix: "" }
+    name: smoke-binary (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: spa-dist
+          path: backend/web/dist
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: build
+        working-directory: backend
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          P=github.com/maicondmenezes/openjob/internal/version
+          go build -trimpath \
+            -ldflags "-s -w -X $P.Version=$CI_VERSION -X $P.Commit=${{ github.sha }} -X $P.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o "../bin/openjob${{ matrix.ext }}" ./cmd/openjob
+      - name: smoke
+        env:
+          OPENJOB_SMOKE_RUN_PREFIX: ${{ matrix.prefix }}
+        run: scripts/smoke-binary.sh "bin/openjob${{ matrix.ext }}" "$CI_VERSION"
+
+  # Dry-run of the release packaging: same GoReleaser config, nothing published.
+  # Smokes the REAL release artifacts (linux binary + .deb for each arch).
+  packaging:
+    needs: spa
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: spa-dist
+          path: backend/web/dist
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: goreleaser/goreleaser-action@9c156ee8a17a598857849441385a2041ef570552 # v6.3.0
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean --skip=publish
+      - name: expected artifacts exist and match checksums.txt
+        run: |
+          ls -1 dist
+          test -f dist/checksums.txt || { echo "missing checksums.txt"; exit 1; }
+          # Binaries sit in per-build dirs on disk and get their final names
+          # (openjob_<ver>_<os>_<arch>[.exe]) at upload: check the names listed.
+          for t in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64 windows_amd64; do
+            grep -Eq "openjob_.*_${t}(\.exe)?$" dist/checksums.txt || { echo "checksums.txt lacks $t"; exit 1; }
+          done
+          grep -q '_windows_amd64\.exe$' dist/checksums.txt || { echo "windows binary is not named .exe"; exit 1; }
+          for a in amd64 arm64; do ls dist/openjob_*_"$a".deb >/dev/null || { echo "missing .deb for $a"; exit 1; }; done
+          # .deb files are on disk under their final names: verify them directly,
+          # and verify the on-disk linux binary against its checksums.txt entry.
+          (cd dist && grep '\.deb$' checksums.txt | sha256sum -c -)
+          WANT=$(grep '_linux_amd64$' dist/checksums.txt | cut -d' ' -f1)
+          HAVE=$(sha256sum dist/openjob_linux_amd64_v1/openjob | cut -d' ' -f1)
+          [ "$WANT" = "$HAVE" ] || { echo "linux/amd64 binary does not match checksums.txt"; exit 1; }
+      - name: smoke the linux/amd64 release binary
+        run: |
+          BIN=dist/openjob_linux_amd64_v1/openjob
+          scripts/smoke-binary.sh "$BIN"
+      - uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+      - name: smoke the .deb in a clean Debian (amd64 and arm64)
+        run: |
+          for arch in amd64 arm64; do
+            DEB=$(basename "$(ls dist/openjob_*_${arch}.deb)")
+            echo "=== $DEB on linux/$arch ==="
+            docker run --rm --platform "linux/$arch" \
+              -v "$PWD/dist:/dist:ro" -v "$PWD/scripts:/scripts:ro" \
+              debian:12-slim bash /scripts/smoke-deb.sh "/dist/$DEB"
+          done
+
+  docker:
+    needs: spa
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+    name: docker (${{ matrix.platform }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - id: ts
+        run: echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - name: build (load only — never pushed from CI)
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          load: true
+          push: false
+          tags: openjob:ci
+          build-args: |
+            VERSION=${{ env.CI_VERSION }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ steps.ts.outputs.date }}
+          cache-from: type=gha,scope=docker-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=docker-${{ matrix.platform }}
+      - name: smoke
+        run: scripts/smoke-docker.sh openjob:ci ${{ matrix.platform }}
