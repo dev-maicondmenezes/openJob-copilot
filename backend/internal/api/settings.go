@@ -223,7 +223,14 @@ func (s *settingsAPI) pingLLM(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.llm.Ping(ctx, llm.Config{BaseURL: baseURL, APIKey: apiKey, Model: model}); err != nil {
 		s.logger.Info("llm ping failed", "err", err)
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		fe := llm.ClassifyError(err, apiKey)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":         false,
+			"error":      fe.Error(),
+			"code":       fe.Code,
+			"message":    fe.Message,
+			"suggestion": fe.Suggestion,
+		})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

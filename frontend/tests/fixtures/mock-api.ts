@@ -37,6 +37,10 @@ const responses: Record<string, unknown> = {
 				id: 10,
 				job_id: 1,
 				status: 'pending',
+				stage_group: 'pending',
+				stage_label: null,
+				stage_source: 'manual',
+				tags: [],
 				sent_at: null,
 				updated_at: '2026-11-02T10:00:00Z',
 				has_tailored: true,
@@ -44,6 +48,9 @@ const responses: Record<string, unknown> = {
 			}
 		]
 	},
+	'/api/email/messages': { messages: [] },
+	'/api/tags': { tags: [] },
+	'/api/settings/email': { account: null, interval: '5m' },
 	'/api/notifications': {
 		notifications: [
 			{
@@ -156,6 +163,7 @@ export const ROUTES = [
 	'/applications',
 	'/curriculum',
 	'/settings',
+	'/settings/email',
 	'/settings/sources',
 	'/settings/discovery',
 	'/settings/notifications',

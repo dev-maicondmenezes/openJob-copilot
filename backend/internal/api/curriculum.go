@@ -3,7 +3,6 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -225,8 +224,11 @@ func (c *curriculumAPI) tailorCurriculum(w http.ResponseWriter, r *http.Request)
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusBadGateway, map[string]string{
-			"error": fmt.Sprintf("Falha ao gerar currículo adaptado pelo provedor de IA: %v", err),
+		fe := llm.ClassifyError(err, apiKey)
+		writeJSON(w, fe.HTTPStatus, map[string]any{
+			"error":      fe.Message,
+			"code":       fe.Code,
+			"suggestion": fe.Suggestion,
 		})
 		return
 	}

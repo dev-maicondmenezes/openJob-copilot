@@ -30,11 +30,15 @@ type Runtime struct {
 	Pool     *tasks.Pool
 	Notifier *notifier.InApp
 	Orch     *discovery.Orchestrator
+	Email    *tasks.EmailSyncScheduler
 }
 
 // Stop terminates the background services in dependency order (HTTP server
 // shutdown happens before this, in main).
 func (rt *Runtime) Stop() {
+	if rt.Email != nil {
+		rt.Email.Stop()
+	}
 	if rt.Orch != nil {
 		rt.Orch.Stop()
 	}
@@ -75,6 +79,7 @@ func New(cfg config.Config, logger *slog.Logger, repo store.Repository, masterKe
 	registry.Register(tasks.NewScoreJobHandler(repo, masterKey, llmClient, rate.NewLimiter(rate.Every(300*time.Millisecond), 1), logger))
 	registry.Register(tasks.NewExtractKeywordsHandler(repo))
 	registry.Register(tasks.NewDiscoverHandler(orch, logger))
+	registry.Register(tasks.NewSyncEmailHandler(repo, masterKey, llmClient, bus, logger, nil))
 	taskCfg, _ := tasks.LoadConfig(context.Background(), repo)
 	pool := tasks.NewPool(repo, registry, bus, taskCfg, logger)
 	pool.Start()
@@ -85,7 +90,11 @@ func New(cfg config.Config, logger *slog.Logger, repo store.Repository, masterKe
 		orch.ConfigureTicker(discCfg.DiscoveryInterval)
 	}
 
-	runtime := &Runtime{Bus: bus, Pool: pool, Notifier: appNotifier, Orch: orch}
+	// CP17: opt-in email polling. Idle until an account is enabled.
+	emailScheduler := tasks.NewEmailSyncScheduler(repo, pool, logger)
+	emailScheduler.Start(context.Background())
+
+	runtime := &Runtime{Bus: bus, Pool: pool, Notifier: appNotifier, Orch: orch, Email: emailScheduler}
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", handleHealth(cfg, repo))
@@ -124,6 +133,15 @@ func New(cfg config.Config, logger *slog.Logger, repo store.Repository, masterKe
 		registerNotifications(r, &notificationsAPI{
 			repo:   repo,
 			logger: logger,
+		})
+		registerEmailAPI(r, &emailAPI{
+			repo:      repo,
+			masterKey: masterKey,
+			llm:       llmClient,
+			logger:    logger,
+			pool:      pool,
+			bus:       bus,
+			scheduler: emailScheduler,
 		})
 		registerTasksAPI(r, &tasksAPI{
 			repo:   repo,
