@@ -19,6 +19,11 @@ export default defineConfig({
 		baseURL,
 		trace: 'retain-on-failure',
 		screenshot: 'only-on-failure',
+		launchOptions: {
+			// Snapshots visuais precisam ser idênticos entre a máquina local e o
+			// CI. Sem isso, hinting/LCD variam por distro e quebram os baselines.
+			args: ['--disable-lcd-text', '--font-render-hinting=none']
+		},
 		...devices['Desktop Chrome']
 	},
 	webServer: {

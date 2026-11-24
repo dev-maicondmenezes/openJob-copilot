@@ -13,7 +13,6 @@ import (
 	// Pure-Go SQLite driver, no CGO (docs/adr/0002). Registered as "sqlite".
 	_ "modernc.org/sqlite"
 
-	llm "github.com/maicondmenezes/openjob/internal/llm"
 )
 
 // nowUTC is the single timestamp source of the store. Everything is stored
@@ -87,107 +86,6 @@ func (s *SQLiteStore) SetSetting(ctx context.Context, key, value string) error {
 func (s *SQLiteStore) DeleteSetting(ctx context.Context, key string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM settings WHERE key = ?`, key)
 	return err
-}
-
-func (s *SQLiteStore) CreateProfile(ctx context.Context, id, name string, config []byte, isDefault bool) error {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO llm_profiles (id, name, config, is_default, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		id, name, config, nowUTC(), nowUTC())
-	return err
-}
-
-func (s *SQLiteStore) GetProfile(ctx context.Context, id string) (profile Profile, err error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT id, name, config, is_default, created_at, updated_at
-		FROM llm_profiles WHERE id = ?`, id)
-	var p Profile
-	var configRaw []byte
-	err = row.Scan(&p.ID, &p.Name, &configRaw, &p.IsDefault, &p.CreatedAt, &p.UpdatedAt)
-	if err != nil {
-		return p, err
-	}
-	p.Config = configRaw
-	return p, nil
-}
-
-func (s *SQLiteStore) ListProfiles(ctx context.Context) ([]Profile, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, config, is_default, created_at, updated_at
-		FROM llm_profiles ORDER BY is_default DESC, created_at`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var profiles []Profile
-	for rows.Next() {
-		var p Profile
-		var configRaw []byte
-		if err := rows.Scan(&p.ID, &p.Name, &configRaw, &p.IsDefault, &p.CreatedAt, &p.UpdatedAt); err != nil {
-			return nil, err
-		}
-		p.Config = configRaw
-		profiles = append(profiles, p)
-	}
-	return profiles, nil
-}
-
-func (s *SQLiteStore) UpdateProfile(ctx context.Context, id, name string, config []byte) error {
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE llm_profiles SET name = ?, config = ?, updated_at = ?
-		WHERE id = ?`,
-		name, config, nowUTC(), id)
-	return err
-}
-
-func (s *SQLiteStore) DeleteProfile(ctx context.Context, id string) error {
-	// Prevent deleting the last/default profile if it would leave no profiles
-	_, err := s.db.ExecContext(ctx, `DELETE FROM llm_profiles WHERE id = ?`, id)
-	return err
-}
-
-func (s *SQLiteStore) SetDefaultProfile(ctx context.Context, id string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	// Reset all defaults
-	_, err = tx.ExecContext(ctx, `UPDATE llm_profiles SET is_default = 0`)
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
-	// Set the new default
-	_, err = tx.ExecContext(ctx, `UPDATE llm_profiles SET is_default = 1 WHERE id = ?`, id)
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
-	return tx.Commit()
-}
-
-func (s *SQLiteStore) MigrateFromFlatConfig(ctx context.Context) error {
-	// Check if profiles already exist
-	var count int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM llm_profiles`).Scan(&count)
-	if err != nil {
-		return err
-	}
-	if count > 0 {
-		// Already migrated
-		return nil
-	}
-	// Migrate current LLM settings into the first profile
-	config := llm.Config{
-		BaseURL: llm.DefaultBaseURL,
-		Model:   llm.DefaultModel,
-	}.Normalize()
-	configBytes, err := json.Marshal(config)
-	if err != nil {
-		return err
-	}
-	// Create first profile as default
-	return s.CreateProfile(ctx, "default", "Perfil padrão", configBytes, true)
 }
 
 // ---- curriculum ---------------------------------------------------------

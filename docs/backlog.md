@@ -13,7 +13,7 @@
 ## IA / Configuração de provedores
 
 ### B1 — Tela de configuração de IA amigável (onboarding de chave)
-- **Status:** proposto
+- **Status:** ✅ concluído na fase 4 (UX de IA) — onboarding em `/settings` com links oficiais por provedor
 - **Esforço:** pequeno (frontend + copy)
 - **Descrição:** a página `/settings` deve guiar o usuário sem assumir conhecimento prévio:
   - Explicação curta (2–3 frases) do que é uma API key e por que o openJob pede (BYOK — cada um usa a própria conta, custo fica sob controle do usuário).
@@ -29,7 +29,7 @@
 - **Origem:** dor real na configuração inicial (CP3/CP4 — usuário precisou descobrir a URL do endpoint OpenAI-compatível do Gemini fora do app).
 
 ### B2 — Múltiplos modelos com seleção do ativo
-- **Status:** proposto
+- **Status:** ✅ concluído na fase 4 (UX de IA) — tabela `llm_profiles`, CRUD/ativação e migração da config plana
 - **Esforço:** médio (store + API + UI)
 - **Descrição:** permitir cadastrar vários perfis de provedor (base_url + model + api_key, cada um cifrado) e alternar qual está **ativo** com um clique.
   - Store: settings `llm.profiles.<id>.{base_url,model,api_key}` + `llm.active_profile` (ou nova tabela `llm_profiles` via migration — preferir migration versionada).
@@ -40,7 +40,7 @@
 - **Depende de:** nada; base pronta (CP3).
 
 ### B3 — Presets de plataformas homologadas (prefill de URL/modelos)
-- **Status:** proposto
+- **Status:** ✅ concluído na fase 4 (UX de IA) — catálogo versionado com modelos, docs e links de chave
 - **Esforço:** pequeno–médio
 - **Descrição:** seletor fixo ("catálogo") de plataformas homologadas que preenche automaticamente `base_url` e sugere `model`:
   - OpenAI, Gemini (`/v1beta/openai`), Groq, OpenRouter, Together, Fireworks, Ollama (`http://localhost:11434/v1`), LM Studio.
@@ -51,7 +51,7 @@
 - **Depende de:** idealmente B2 (presets por perfil); pode existir sozinho.
 
 ### B4 — Modelos gratuitos pré-configurados
-- **Status:** proposto
+- **Status:** ✅ concluído na fase 4 (UX de IA) — presets free tier com nota de limite e default gratuito
 - **Esforço:** pequeno (por cima de B3)
 - **Descrição:** dentro do catálogo, marcar opções **free tier** e sugerir modelos gratuitos estáveis:
   - Gemini free tier (AI Studio), Groq free tier, OpenRouter `:free`, Ollama/LM Studio (100% local).

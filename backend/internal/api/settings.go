@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/maicondmenezes/openjob/internal/llm"
@@ -45,23 +44,6 @@ type llmKeyRequest struct {
 	APIKey  string `json:"api_key"`
 }
 
-// Preset is a versioned LLM configuration template with a free-tier flag.
-// The catalog is versioned so the backend can evolve presets without breaking
-// existing client contracts; new versions are added, never removed.
-type Preset struct {
-	Version    int    `json:"version"`
-	BaseURL    string `json:"base_url"`
-	Model      string `json:"model"`
-	FreeTier   bool   `json:"free_tier"`
-	Deprecated bool   `json:"deprecated,omitempty"`
-}
-
-// PresetsResponse is the payload for GET /api/settings/llm/presets.
-type PresetsResponse struct {
-	Presets []Preset `json:"presets"`
-	Default Preset   `json:"default"`
-}
-
 // registerSettings mounts the settings routes.
 func registerSettings(r chi.Router, s *settingsAPI) {
 	r.Get("/settings", s.getSettings)
@@ -70,7 +52,7 @@ func registerSettings(r chi.Router, s *settingsAPI) {
 	r.Get("/settings/llm-key", s.llmKeyStatus)
 	r.Get("/settings/llm", s.llmConfig) // non-secret values for UI hydration
 	r.Post("/settings/llm-ping", s.pingLLM)
-	r.Get("/settings/llm/presets", s.presetsLLM)
+	registerSettingsProfiles(r, s)
 }
 
 // getSettings returns the non-secret, user-facing preferences (CP13 §4.4).
@@ -131,6 +113,9 @@ func (s *settingsAPI) updateAppearance(w http.ResponseWriter, r *http.Request) {
 
 // saveLLMKey encrypts and persists the BYOK configuration. Response never
 // contains the API key (spec §4: keys are never exposed to the frontend).
+//
+// It is the pre-profiles endpoint and stays supported: besides the flat llm.*
+// keys it keeps the active profile in sync, so the two views never diverge.
 func (s *settingsAPI) saveLLMKey(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSettingsBody)
 	var req llmKeyRequest
@@ -139,26 +124,23 @@ func (s *settingsAPI) saveLLMKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req.APIKey = strings.TrimSpace(req.APIKey)
-	if req.APIKey == "" {
-		writeAPIError(w, http.StatusBadRequest, "api_key_required", "api_key is required", nil)
-		return
-	}
-
 	cfg := llm.Config{BaseURL: req.BaseURL, Model: req.Model}.Normalize()
-	if !strings.HasPrefix(cfg.BaseURL, "http://") && !strings.HasPrefix(cfg.BaseURL, "https://") {
+	if !validBaseURL(cfg.BaseURL) {
 		writeAPIError(w, http.StatusBadRequest, "base_url_invalid", "base_url must start with http:// or https://", nil)
 		return
 	}
-
-	sealed, err := store.EncryptString(s.masterKey, req.APIKey)
-	if err != nil {
-		s.logger.Error("encrypt llm key failed", "err", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao cifrar a chave"})
+	sealed, ok := s.resolveKey(w, req.APIKey, cfg.BaseURL, "")
+	if !ok {
 		return
 	}
 
 	ctx := r.Context()
+	// Fold any pre-profiles flat config into a profile before overwriting it.
+	if err := s.repo.MigrateFromFlatConfig(ctx); err != nil {
+		s.logger.Error("migrate flat llm config failed", "err", err)
+		writeAPIError(w, http.StatusInternalServerError, "settings.save_failed", "failed to save configuration", nil)
+		return
+	}
 	for key, value := range map[string]string{
 		settingLLMAPIKey:  sealed,
 		settingLLMBaseURL: cfg.BaseURL,
@@ -166,13 +148,55 @@ func (s *settingsAPI) saveLLMKey(w http.ResponseWriter, r *http.Request) {
 	} {
 		if err := s.repo.SetSetting(ctx, key, value); err != nil {
 			s.logger.Error("persist llm settings failed", "key", key, "err", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao salvar configuração"})
+			writeAPIError(w, http.StatusInternalServerError, "settings.save_failed", "failed to save configuration", nil)
 			return
 		}
+	}
+	if err := s.syncActiveProfile(ctx, cfg, sealed); err != nil {
+		s.logger.Error("sync active llm profile failed", "err", err)
+		writeAPIError(w, http.StatusInternalServerError, "settings.save_failed", "failed to save configuration", nil)
+		return
 	}
 
 	// 204: nada a devolver — e nunca a chave.
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// syncActiveProfile mirrors the flat settings just written into the active
+// profile, creating the first profile when none exists yet.
+func (s *settingsAPI) syncActiveProfile(ctx context.Context, cfg llm.Config, sealed string) error {
+	profiles, err := s.repo.ListProfiles(ctx)
+	if err != nil {
+		return err
+	}
+	for _, p := range profiles {
+		if !p.IsDefault {
+			continue
+		}
+		old, err := p.DecodeConfig()
+		if err != nil {
+			return err
+		}
+		raw, err := store.EncodeProfileConfig(store.ProfileConfig{
+			BaseURL: cfg.BaseURL, Model: cfg.Model, SealedKey: sealed, PresetID: old.PresetID,
+		})
+		if err != nil {
+			return err
+		}
+		return s.repo.UpdateProfile(ctx, p.ID, p.Name, raw)
+	}
+	id, err := newProfileID()
+	if err != nil {
+		return err
+	}
+	raw, err := store.EncodeProfileConfig(store.ProfileConfig{BaseURL: cfg.BaseURL, Model: cfg.Model, SealedKey: sealed})
+	if err != nil {
+		return err
+	}
+	if err := s.repo.CreateProfile(ctx, id, cfg.Model, raw, false); err != nil {
+		return err
+	}
+	return s.repo.ActivateProfile(ctx, id)
 }
 
 // llmKeyStatus answers GET /api/settings/llm-key with configured: bool only.
@@ -209,79 +233,34 @@ func (s *settingsAPI) llmConfig(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// presetsLLM returns the versioned preset catalog with free-tier flags and a
-// default model suggestion. The key never leaves the server; only base_url and
-// model are exposed (spec CP4 §3.1).
-func (s *settingsAPI) presetsLLM(w http.ResponseWriter, r *http.Request) {
-	_ = r.Context()
-
-	presets := []Preset{
-		{
-			Version:    1,
-			BaseURL:    "https://api.openai.com/v1",
-			Model:      "gpt-4o-mini",
-			FreeTier:   true,
-			Deprecated: false,
-		},
-		{
-			Version:    1,
-			BaseURL:    "https://api.groq.com/opensai/v1",
-			Model:      "llama-3.3-70b-versatile",
-			FreeTier:   true,
-			Deprecated: false,
-		},
-		{
-			Version:    1,
-			BaseURL:    "https://api.together.xyz/v1",
-			Model:      "mistral-7b-instruct",
-			FreeTier:   false,
-			Deprecated: false,
-		},
-		{
-			Version:    1,
-			BaseURL:    "https://api.perplexity.ai/v1",
-			Model:      "pplx-7b-online",
-			FreeTier:   false,
-			Deprecated: false,
-		},
-	}
-
-	// Select first free-tier preset as default
-	var defaultPreset Preset
-	for i := range presets {
-		if presets[i].FreeTier {
-			defaultPreset = presets[i]
-			break
-		}
-	}
-	// If no free-tier preset found, use first one
-	if defaultPreset.Version == 0 {
-		defaultPreset = presets[0]
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"presets": presets,
-		"default": defaultPreset,
-	})
-}
-
-// writeJSON is defined in server.go; reused here by the same package.
-
-// pingLLM runs a live connectivity/credentials test against the stored
+// pingLLM runs a live connectivity/credentials test against the active
 // provider config and returns a legible success/failure (spec CP3).
 func (s *settingsAPI) pingLLM(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-
 	sealed, err := s.repo.GetSetting(ctx, settingLLMAPIKey)
-	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"ok":    false,
-			"error": "Nenhuma chave configurada — salve a API key primeiro.",
-		})
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao consultar configuração"})
 		return
 	}
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao consultar configuração"})
+	baseURL, _ := s.repo.GetSetting(ctx, settingLLMBaseURL)
+	model, _ := s.repo.GetSetting(ctx, settingLLMModel)
+	s.pingSealed(w, r, sealed, baseURL, model)
+}
+
+// pingSealed decrypts sealed, pings the provider and writes the result. An
+// empty sealed key is a normal, friendly answer ("configure a key"), never a
+// 5xx: the settings page must load and be usable before any provider exists.
+func (s *settingsAPI) pingSealed(w http.ResponseWriter, r *http.Request, sealed, baseURL, model string) {
+	ctx := r.Context()
+	if sealed == "" {
+		fe := llm.ClassifyError(llm.ErrNotConfigured, "")
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":         false,
+			"error":      "Nenhuma chave configurada — salve a API key primeiro.",
+			"code":       fe.Code,
+			"message":    fe.Message,
+			"suggestion": fe.Suggestion,
+		})
 		return
 	}
 
@@ -290,12 +269,10 @@ func (s *settingsAPI) pingLLM(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":    false,
 			"error": "A chave armazenada não pôde ser decifrada (master key mudou?). Reconfigure a API key.",
+			"code":  llm.CodeDecryptError,
 		})
 		return
 	}
-
-	baseURL, _ := s.repo.GetSetting(ctx, settingLLMBaseURL)
-	model, _ := s.repo.GetSetting(ctx, settingLLMModel)
 
 	if err := s.llm.Ping(ctx, llm.Config{BaseURL: baseURL, APIKey: apiKey, Model: model}); err != nil {
 		s.logger.Info("llm ping failed", "err", err)

@@ -25,12 +25,12 @@ type Curriculum struct {
 // Multiple profiles allow users to switch between different AI providers/models
 // without re-entering settings (B2 - Múltiplos perfis).
 type Profile struct {
-	ID          string
-	Name        string
-	Config      []byte // encrypted LLM config (base_url, model)
-	IsDefault   bool
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID        string
+	Name      string
+	Config    []byte // JSON ProfileConfig; the API key inside is AES-GCM sealed
+	IsDefault bool   // true for the single active profile
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Job is a vacancy discovered by an automated source or pasted manually (spec §7).
@@ -267,7 +267,9 @@ type Repository interface {
 	ListProfiles(ctx context.Context) ([]Profile, error)
 	UpdateProfile(ctx context.Context, id, name string, config []byte) error
 	DeleteProfile(ctx context.Context, id string) error
-	SetDefaultProfile(ctx context.Context, id string) error
+	// ActivateProfile makes id the active profile and mirrors its provider
+	// settings into the flat llm.* keys read by tailoring/scoring (atomic).
+	ActivateProfile(ctx context.Context, id string) error
 	MigrateFromFlatConfig(ctx context.Context) error
 
 	// email_accounts (CP17)
