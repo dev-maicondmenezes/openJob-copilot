@@ -78,8 +78,10 @@ ENV OPENJOB_PORT=8080 \
     OPENJOB_HOSTNAME=openjob.copilot \
     OPENJOB_CONTAINER=true
 
+# /data is the persistent data dir. Mount a volume here (docker -v, compose
+# named volume, or Railway Volume). No VOLUME instruction is used because
+# Railway rejects it.
 WORKDIR /data
-VOLUME ["/data"]
 EXPOSE 8080
 
 # Numeric non-root user (distroless "nonroot"): also satisfies runAsNonRoot.
