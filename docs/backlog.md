@@ -60,7 +60,7 @@
 - **Depende de:** B1 + B3.
 
 ### B5 — Configuração automática via login/autorização (OAuth)
-- **Status:** proposto · ⚠️ maior risco/esforço · avaliar viabilidade antes de agendar
+- **Status:** ❌ **no-go no MVP (F7, 2026-11-24)** — as APIs OpenAI-compatible não emitem token OAuth público para apps pessoais; o fluxo manual por chave (B1/B3) continua sendo o caminho oficial. Reavaliar pós-MVP (CP18) se houver client_id viável por provedor.
 - **Esforço:** grande
 - **Descrição:** "conectar conta" nas plataformas homologadas: app abre a página de autorização do provedor, recebe o token via callback local (`http://<host>:8080/api/settings/llm/oauth/callback`) e configura o perfil automaticamente — sem o usuário criar/copiar chave.
   - Viabilidade por plataforma (verificar antes de implementar): a maioria das APIs OpenAI-compatible **não emite tokens via OAuth público para apps pessoais**; Gemini/OpenAI exigem OAuth client de projeto GCP/dev account. Ollama local não precisa. Provável viável primeiro para Gemini (OAuth do Google Cloud) — mas envolve cadastro de app, client_id embutido no binário local e consent screen em modo "testing".
@@ -88,7 +88,7 @@
 ## Currículo & Tailoring (Checkpoint 4)
 
 ### B7 — Extração de currículo direto do LinkedIn via OAuth / autorização
-- **Status:** proposto · ⚠️ maior esforço/restrições da API do LinkedIn
+- **Status:** ❌ **no-go no MVP (F7, 2026-11-24)** — o escopo OpenID devolve apenas `openid profile email`; histórico completo exige aprovação no LinkedIn Partner Program/Member Data Portability. Fallback de upload PDF/MD/TXT mantido; reavaliar no CP18.
 - **Esforço:** grande
 - **Descrição:** permitir conectar conta do LinkedIn via login e autorização OAuth 2.0 para extrair os dados do perfil profissional diretamente para o currículo-base:
   - Fluxo: botão "Importar do LinkedIn" na página de currículo, autorização do usuário na tela do LinkedIn, e backend recebe os dados de histórico profissional, formação, habilidades e resumo para estruturar em Markdown (`curriculum.content_md`).
@@ -97,7 +97,7 @@
 - **Aceite:** usuário autoriza o aplicativo via LinkedIn e tem o currículo preenchido automaticamente em Markdown no banco local.
 
 ### B8 — Tratamento de erros amigável no tailoring e upload (sem expor detalhes de log)
-- **Status:** proposto
+- **Status:** ✅ concluído na fase 3 (currículo) — catálogo de erros da F2 aplicado ao upload/PDF/tailoring
 - **Esforço:** pequeno
 - **Descrição:** assegurar que erros no upload, conversão de PDF e tailoring com IA apresentem mensagens amigáveis e orientativas para o usuário, sem expor mensagens de erro internas, payloads brutos, stacks ou detalhes de log do servidor:
   - Backend: registrar detalhes técnicos completos via `slog.Error` no terminal/log do servidor, mas retornar JSON com descrições amigáveis e orientadas à ação (ex.: substituir mensagens contendo JSON do provedor de IA ou erros de rede por "O provedor de IA não conseguiu gerar a adaptação no momento. Verifique sua chave em Configurações ou tente novamente em instantes.").
@@ -105,7 +105,7 @@
 - **Aceite:** nenhuma falha de upload, parse ou IA vaza stack trace ou detalhes de log internos na tela do usuário.
 
 ### B9 — Exportação da versão adaptada para os formatos aceitos para importação (PDF, TXT e MD)
-- **Status:** proposto
+- **Status:** ✅ concluído na fase 3 (currículo) — exportação em PDF, TXT e MD
 - **Esforço:** médio
 - **Descrição:** permitir exportar o currículo adaptado para todos os formatos aceitos na importação (além do `.md` já existente):
   - **TXT**: download do texto puro limpo, com marcadores simplificados e sem tags markdown.
@@ -114,7 +114,7 @@
 - **Aceite:** usuário pode escolher baixar o currículo adaptado em PDF, TXT ou MD com um clique.
 
 ### B10 — Botão discreto de cópia na área de exibição da versão adaptada
-- **Status:** proposto
+- **Status:** ✅ concluído na fase 3 (currículo) — botão discreto de cópia com feedback
 - **Esforço:** muito pequeno (UI)
 - **Descrição:** adicionar um botão discreto de cópia diretamente na área de exibição da versão adaptada (estilo botão de cópia de blocos de código/previews), tanto na visualização renderizada quanto nas abas de diff:
   - Posicionamento discreto no canto superior direito do container de visualização.
@@ -127,7 +127,7 @@
 
 ### UI Revision for Checkpoint 6
 
-- **Status:** proposto
+- **Status:** ✅ concluído na fase 1 (CP16) — descoberta/fontes alinhadas ao design system
 - **Esforço:** médio
 - **Descrição:** Alinhar a UI da descoberta automática, gerenciamento de fontes e páginas de settings com o design system do projeto (navegação em abas, cards, badges, modais, foco acessível). Incluir polimento visual, layout responsivo e revisão de design.
 
@@ -154,7 +154,7 @@
 
 ### B11 — Refatoração do backend: eliminar IA de features determinísticas
 
-- **Status:** proposto
+- **Status:** ✅ concluído na fase 5 (B11) — score, keywords e filtro determinísticos (ADRs 0037–0042)
 - **Esforço:** médio–grande (backend + testes + remoção de código LLM)
 - **Descrição:** restringir o uso de LLM no openJob às três features que exigem **geração de linguagem natural**:
   1. Adaptação de currículo (tailoring)
