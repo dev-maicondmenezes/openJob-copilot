@@ -11,7 +11,7 @@ func TestLoadDefaults(t *testing.T) {
 	} {
 		t.Setenv(key, "")
 	}
-	// t.Setenv with "" still sets an empty value, which envOr treats as unset.
+	// t.Setenv with "" still sets an empty value, which pick treats as unset.
 	cfg := Load()
 	if cfg.Port != "8080" {
 		t.Errorf("Port = %q, want 8080", cfg.Port)
@@ -22,9 +22,12 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Hostname != "openjob.copilot" {
 		t.Errorf("Hostname = %q, want openjob.copilot", cfg.Hostname)
 	}
-	want := Features{ScoreDeterministic: true, KeywordsDeterministic: true, FilterDeterministic: true}
+	want := Features{
+		UIFeed: true, EmailSync: true, CurriculumExport: true,
+		ScoreDeterministic: true, KeywordsDeterministic: true, FilterDeterministic: true,
+	}
 	if cfg.Features != want {
-		t.Errorf("Features = %+v, want deterministic defaults enabled", cfg.Features)
+		t.Errorf("Features = %+v, want every release flag enabled by default", cfg.Features)
 	}
 }
 
@@ -51,6 +54,17 @@ func TestLoadFeatures(t *testing.T) {
 	}
 	if !cfg.Features.ScoreDeterministic {
 		t.Errorf("ScoreDeterministic = false, want true (invalid value falls back to the safe default)")
+	}
+}
+
+func TestReleaseFlagsCanBeDisabledForRollback(t *testing.T) {
+	t.Setenv("OPENJOB_FEATURE_UI_FEED", "false")
+	t.Setenv("OPENJOB_FEATURE_EMAIL_SYNC", "0")
+	t.Setenv("OPENJOB_FEATURE_CURRICULUM_EXPORT", "0")
+
+	cfg := Load()
+	if cfg.Features.UIFeed || cfg.Features.EmailSync || cfg.Features.CurriculumExport {
+		t.Errorf("Features = %+v, want release flags off for rollback", cfg.Features)
 	}
 }
 

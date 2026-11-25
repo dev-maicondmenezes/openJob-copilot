@@ -20,12 +20,34 @@ openJob automates your application flow for international remote jobs (paid in U
 
 ### Quick start
 
+Three official ways to run it — all built from the same `vX.Y.Z` tag. Details
+(install, update, remove, backup, env vars, firewall):
+[`docs/distribution.md`](docs/distribution.md). First-time setup (AI provider,
+resume, sources) always happens **in the web app**.
+
+**1. Binary or `.deb`** (no Docker, no Go) — download from the GitHub Releases:
+
+```bash
+sudo apt install ./openjob_X.Y.Z_amd64.deb   # Debian/Ubuntu (or run the binary directly)
+openjob          # prepare, start, open the browser
+openjob serve    # server only (SSH / headless)
+```
+
+**2. Docker Hub** (`maicondmenezes/openjob`, `linux/amd64` + `linux/arm64`):
+
+```bash
+docker run -d --name openjob -p 8080:8080 -v openjob-data:/data maicondmenezes/openjob:X.Y.Z
+```
+
+**3. Docker Compose** (published image + named volume):
+
 ```bash
 docker compose up -d
 ```
 
 - App: <http://localhost:8080>
 - Health check: `GET /api/health` → `{"status":"ok", ...}`
+- Building from source with Compose: `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`
 
 ### Local DNS (openjob.copilot)
 
@@ -67,7 +89,7 @@ the matching phase ships.
 
 ### Local data & secrets — ⚠️ read this
 
-- Everything persists in `./data/` (mounted to `/data` in the container).
+- Everything persists in the data directory: a Docker volume (`/data`), `./data/` with `make run`/the build override, or your per-user directory for the binary/`.deb` (`~/.local/share/openjob` on Linux).
 - **`data/.master.key`** (created from Checkpoint 3 on) is the AES-GCM key that encrypts your API keys at rest. **It is the vault's secret: back it up together with the DB, never commit it** (`.gitignore` already excludes `data/`).
 - If the master key is lost, stored API keys become unrecoverable (explicit error) — just re-enter your key in `/settings`. See [docs/adr/0004-byok-local-master-key.md](docs/adr/0004-byok-local-master-key.md).
 
@@ -75,7 +97,7 @@ the matching phase ships.
 
 ```bash
 make build   # SPA build (npm) -> backend/web/dist -> static binary -> bin/openjob
-make run     # serves on :8080
+make run     # serves on :8080 (openjob serve)
 make test    # go test ./...
 make dev     # hot reload: air (Go, :8080) + Vite HMR (SPA, :5173) in parallel
 ```
@@ -123,12 +145,34 @@ O openJob automatiza o fluxo de candidaturas a vagas internacionais remotas (pag
 
 ### Início rápido
 
+Três caminhos oficiais — todos gerados da mesma tag `vX.Y.Z`. Detalhes
+(instalação, atualização, remoção, backup, variáveis, firewall):
+[`docs/distribution.md`](docs/distribution.md). O primeiro uso (provedor de IA,
+currículo, fontes) acontece sempre **na webapp**.
+
+**1. Binário ou `.deb`** (sem Docker, sem Go) — baixe nas Releases do GitHub:
+
+```bash
+sudo apt install ./openjob_X.Y.Z_amd64.deb   # Debian/Ubuntu (ou execute o binário direto)
+openjob          # prepara, sobe e abre o navegador
+openjob serve    # só o servidor (SSH / headless)
+```
+
+**2. Docker Hub** (`maicondmenezes/openjob`, `linux/amd64` + `linux/arm64`):
+
+```bash
+docker run -d --name openjob -p 8080:8080 -v openjob-data:/data maicondmenezes/openjob:X.Y.Z
+```
+
+**3. Docker Compose** (imagem publicada + volume nomeado):
+
 ```bash
 docker compose up -d
 ```
 
 - App: <http://localhost:8080>
 - Health check: `GET /api/health` → `{"status":"ok", ...}`
+- Build do código-fonte com Compose: `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`
 
 ### DNS local (openjob.copilot)
 
@@ -170,7 +214,7 @@ SPA esconder UI inacabada até a fase correspondente entrar no ar.
 
 ### Dados locais e segredos — ⚠️ leia
 
-- Tudo persiste em `./data/` (montado em `/data` no container).
+- Tudo persiste no diretório de dados: volume Docker (`/data`), `./data/` com `make run`/o override de build, ou o diretório do usuário para binário/`.deb` (`~/.local/share/openjob` no Linux).
 - **`data/.master.key`** (a partir do Checkpoint 3) é a chave AES-GCM que cifra suas chaves de API em repouso. **É o segredo do seu cofre local: faça backup dele junto com o banco, nunca o commite** (o `.gitignore` já exclui `data/`).
 - Se a master key for perdida, as chaves cifradas ficam irrecuperáveis (erro explícito) — basta reconfigurar a API key em `/settings`. Ver [docs/adr/0004-byok-local-master-key.md](docs/adr/0004-byok-local-master-key.md).
 
@@ -178,7 +222,7 @@ SPA esconder UI inacabada até a fase correspondente entrar no ar.
 
 ```bash
 make build   # build da SPA (npm) -> backend/web/dist -> binário estático -> bin/openjob
-make run     # sobe na porta 8080
+make run     # sobe na porta 8080 (openjob serve)
 make test    # go test ./...
 make dev     # hot reload: air (Go, :8080) + Vite HMR (SPA, :5173) em paralelo
 ```
@@ -208,7 +252,7 @@ são servidos pelo fallback da SPA.
 | 3 | SQLite + BYOK | ✅ este release — [plano](docs/plan/03-sqlite-byok.md) |
 | 4–9 | Currículo/tailoring, vagas, discovery, Telegram, validação, ATS | ✅ este release — [plano](docs/plan/README.md) |
 | 10 | Notificações in-app + fila assíncrona de tarefas | ✅ este release — [plano](docs/plan/10-notificacoes-in-app.md) |
-| 11 | Pacote/release (wizard TUI + embed) | ✅ este release — [plano](docs/plan/11-package-release.md) |
+| 11 | Distribuição: binário único, `.deb`, imagem Docker Hub e CI/CD por tag | ✅ este release — [plano](docs/plan/11-package-release.md) |
 | 12 | Design system + responsividade multi-dispositivo | ✅ este release — [plano](docs/plan/12-design.md) |
 
 Melhorias pós-checkpoints (ex.: configuração de IA mais amigável, presets de provedores, multi-modelos): [`docs/backlog.md`](docs/backlog.md).

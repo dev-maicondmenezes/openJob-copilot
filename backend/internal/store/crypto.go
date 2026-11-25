@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // BYOK encryption (spec §4/§6): API keys are sealed with AES-256-GCM using a
@@ -42,35 +44,105 @@ var ErrKeyMismatch = errors.New("store: master key does not match stored ciphert
 // silently regenerating (which would orphan all stored ciphertext).
 func LoadOrCreateMasterKey(path string) ([]byte, error) {
 	if dir := filepath.Dir(path); dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		// 0700 only applies when the directory is created here; an existing
+		// directory (e.g. a mounted volume) keeps whatever mode it has.
+		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return nil, fmt.Errorf("store: create key dir %s: %w", dir, err)
 		}
 	}
 
-	if key, err := os.ReadFile(path); err == nil {
-		if len(key) != 32 {
-			return nil, fmt.Errorf(
-				"store: %s exists with %d bytes (want 32): refusing to regenerate — reconfigure encrypted settings or restore the file",
-				path, len(key))
-		}
-		return key, nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("store: read %s: %w", path, err)
+	if key, err := readMasterKey(path); err == nil || !errors.Is(err, os.ErrNotExist) {
+		return key, err
 	}
 
 	key := make([]byte, 32)
 	if _, err := io.ReadFull(rand.Reader, key); err != nil {
 		return nil, fmt.Errorf("store: generate master key: %w", err)
 	}
-	// O_CREAT is implicit; 0600 must be honored on create (spec: vault secret).
-	if err := os.WriteFile(path, key, 0o600); err != nil {
-		return nil, fmt.Errorf("store: write %s: %w", path, err)
-	}
-	// Best effort: enforce mode even if the file pre-existed another way.
-	if err := os.Chmod(path, 0o600); err != nil {
-		return nil, fmt.Errorf("store: chmod %s: %w", path, err)
+	if err := writeKeyExclusive(path, key); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			// Another process created it between our read and write: the
+			// winner's key is the key. Never overwrite (CP11, docs/adr/0012).
+			return readMasterKey(path)
+		}
+		return nil, err
 	}
 	return key, nil
+}
+
+func readMasterKey(path string) ([]byte, error) {
+	key, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("store: read %s: %w", path, err)
+	}
+	if len(key) != 32 {
+		return nil, fmt.Errorf(
+			"store: %s exists with %d bytes (want 32): refusing to regenerate — reconfigure encrypted settings or restore the file",
+			path, len(key))
+	}
+	return key, nil
+}
+
+// writeKeyExclusive publishes the key atomically: the bytes go to a private
+// temp file first and are hard-linked into place, so the final path either
+// does not exist or holds the complete 32 bytes — a crash mid-write can never
+// leave a truncated key that would block the next start. link(2) also fails
+// with fs.ErrExist instead of replacing an existing key. Filesystems without
+// hard links fall back to an O_EXCL create.
+func writeKeyExclusive(path string, key []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".master.key.tmp-*")
+	if err != nil {
+		return fmt.Errorf("store: temp key file: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+
+	if err := tmp.Chmod(0o600); err != nil && runtime.GOOS != "windows" {
+		tmp.Close()
+		return fmt.Errorf("store: chmod %s: %w", tmpName, err)
+	}
+	if _, err := tmp.Write(key); err != nil {
+		tmp.Close()
+		return fmt.Errorf("store: write %s: %w", tmpName, err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("store: sync %s: %w", tmpName, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("store: close %s: %w", tmpName, err)
+	}
+
+	if err := os.Link(tmpName, path); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return err
+		}
+		// No hard links here (e.g. FAT/exFAT): exclusive create instead.
+		f, oerr := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if oerr != nil {
+			if errors.Is(oerr, fs.ErrExist) {
+				return oerr
+			}
+			return fmt.Errorf("store: write %s: %w", path, oerr)
+		}
+		if _, werr := f.Write(key); werr != nil {
+			f.Close()
+			os.Remove(path)
+			return fmt.Errorf("store: write %s: %w", path, werr)
+		}
+		if cerr := f.Close(); cerr != nil {
+			os.Remove(path)
+			return fmt.Errorf("store: close %s: %w", path, cerr)
+		}
+	}
+	// Enforce the mode even if a umask/filesystem altered it (no-op on Windows).
+	if err := os.Chmod(path, 0o600); err != nil && runtime.GOOS != "windows" {
+		return fmt.Errorf("store: chmod %s: %w", path, err)
+	}
+	return nil
 }
 
 // Encrypt seals plaintext with AES-256-GCM and returns base64(nonce‖ciphertext).

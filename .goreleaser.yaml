@@ -1,0 +1,72 @@
+# GoReleaser — single source of truth for binaries, checksums and the .deb
+# (CP11, docs/adr/0011). The release workflow builds the SPA first so the
+# embedded backend/web/dist is fresh; the Docker image is built by its own
+# job from the same tag (docs/release/ci-cd.md).
+version: 2
+project_name: openjob
+
+builds:
+  - id: openjob
+    dir: backend
+    main: ./cmd/openjob
+    binary: openjob
+    env:
+      - CGO_ENABLED=0 # pure-Go SQLite (modernc, docs/adr/0002)
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/maicondmenezes/openjob/internal/version.Version={{ .Version }}
+      - -X github.com/maicondmenezes/openjob/internal/version.Commit={{ .FullCommit }}
+      - -X github.com/maicondmenezes/openjob/internal/version.Date={{ .Date }}
+
+# The individual binary is the main artifact — no tarball/zip.
+archives:
+  - id: binaries
+    formats: [binary]
+    name_template: "openjob_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+nfpms:
+  - id: deb
+    package_name: openjob
+    ids: [openjob]
+    formats: [deb]
+    file_name_template: "openjob_{{ .Version }}_{{ .Arch }}"
+    maintainer: "openJob maintainers <dev-maicondmenezes@users.noreply.github.com>"
+    description: "Local-first job application copilot"
+    homepage: https://github.com/dev-maicondmenezes/openJob-copilot
+    # TODO(owner): set the project's SPDX license id once a LICENSE file exists.
+    license: NOASSERTION
+    section: utils
+    priority: optional
+    bindir: /usr/bin
+    contents:
+      - src: packaging/openjob.desktop
+        dst: /usr/share/applications/openjob.desktop
+        file_info:
+          mode: 0644
+    # Deliberately NO scripts: nothing starts a server, creates a service or
+    # touches user data on install/upgrade/remove. Data lives per user under
+    # ~/.local/share/openjob and survives removal (docs/distribution.md).
+
+changelog:
+  disable: true
+
+# The release is created as a DRAFT and published by the last job of the
+# workflow only after binaries AND the Docker image succeeded, so a partial
+# failure never leaves a half-published version. A rerun replaces the draft.
+release:
+  draft: true
+  replace_existing_draft: true
+  name_template: "openJob {{ .Version }}"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"

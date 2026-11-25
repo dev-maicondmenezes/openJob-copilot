@@ -22,3 +22,6 @@ backend/web/dist/*
 .idea/
 .vscode/
 .DS_Store
+
+# GoReleaser output (CP11)
+/dist/
