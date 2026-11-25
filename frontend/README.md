@@ -24,13 +24,17 @@ npm run preview         # serve o build localmente
 npm run check           # svelte-check (tipos)
 npm run lint:ui         # proíbe cor/spacing/raio ad-hoc em src/routes/
 npm run test:e2e        # Playwright: atalhos, viewport, deep link
-npm run test:visual     # snapshots por rota × viewport canônico
+npm run test:visual     # snapshots por rota × viewport canônico (Docker)
 npm run audit:a11y      # axe-core por rota × viewport canônico
 ```
 
-> Na primeira execução dos snapshots, rode `npx playwright install chromium`
-> e `npx playwright test --update-snapshots` para gerar os baselines. Mudanças
-> em snapshots exigem revisão manual (CP12 §8).
+> **Snapshots visuais rodam em Docker**, na imagem oficial do Playwright pinada
+> pela versão de `@playwright/test` (`scripts/visual-test.sh`). Assim o Debian
+> local e o Ubuntu do CI renderizam com o mesmo Chromium/fontes — sem isso os
+> anti-aliasing e quebras de linha divergem e todos os baselines falham.
+>
+> Para atualizar baselines use `npm run test:visual -- --update-snapshots`
+> (sempre na mesma imagem) e revise o diff manualmente (CP12 §8).
 
 ## Estrutura
 

@@ -3,7 +3,7 @@
 > Local-first job application copilot (Go + SvelteKit, Docker, SQLite).
 > Spec: [`docs/context/spec.md`](docs/context/spec.md) · Plan: [`docs/plan/`](docs/plan/) · Backlog: [`docs/backlog.md`](docs/backlog.md)
 
-**Status: Checkpoint 3 (SQLite + BYOK) — done.**
+**Status: MVP — release candidate (F7 hardening).**
 
 ---
 
@@ -16,7 +16,7 @@ openJob automates your application flow for international remote jobs (paid in U
 ### Requirements
 
 - Docker + Docker Compose
-- (For local dev) Go 1.22+, Node 22+
+- (For local dev) Go 1.27+, Node 22+
 
 ### Quick start
 
@@ -75,17 +75,16 @@ Paths tested and documented in [`docs/adr/0001-mdns-local-hostname.md`](docs/adr
 | `OPENJOB_PORT` | `8080` | HTTP listen port |
 | `OPENJOB_DB_PATH` | `/data/openjob.db` | SQLite database path |
 | `OPENJOB_HOSTNAME` | `openjob.copilot` | LAN hostname announced via mDNS |
-| `OPENJOB_FEATURE_UI_FEED` | `false` | Vertical feed as home (CP16) |
-| `OPENJOB_FEATURE_EMAIL_SYNC` | `false` | Email tracking + `in_process` pipeline (CP17) |
-| `OPENJOB_FEATURE_CURRICULUM_EXPORT` | `false` | Resume export (B10) |
+| `OPENJOB_FEATURE_UI_FEED` | `true` | Vertical feed as home (CP16) |
+| `OPENJOB_FEATURE_EMAIL_SYNC` | `true` | Email tracking + `in_process` pipeline (CP17) |
+| `OPENJOB_FEATURE_CURRICULUM_EXPORT` | `true` | Resume export (B10) |
 | `OPENJOB_FEATURE_SCORE_DETERMINISTIC` | `true` | Deterministic scoring, no AI (B11) |
 | `OPENJOB_FEATURE_KEYWORDS_DETERMINISTIC` | `true` | Deterministic keyword extraction (B11) |
 | `OPENJOB_FEATURE_FILTER_DETERMINISTIC` | `true` | Deterministic resume filter (B11) |
 
-UI/email/export flags accept `true`/`1` (and `false`/`0`); anything else stays
-off. Deterministic flags default on and can be set to `false`/`0` for rollback.
-They are exposed by `GET /api/features` so the SPA can hide unfinished UI until
-the matching phase ships.
+All flags default to on in the MVP and accept `true`/`1` (or `false`/`0` for
+rollback); anything else keeps the default. They are exposed by
+`GET /api/features` so the SPA can hide a feature without a new binary.
 
 ### Local data & secrets — ⚠️ read this
 
@@ -99,6 +98,7 @@ the matching phase ships.
 make build   # SPA build (npm) -> backend/web/dist -> static binary -> bin/openjob
 make run     # serves on :8080 (openjob serve)
 make test    # go test ./...
+make test-ui # check, i18n, lint, e2e, a11y and visual (visual runs in Docker)
 make dev     # hot reload: air (Go, :8080) + Vite HMR (SPA, :5173) in parallel
 ```
 
@@ -141,7 +141,7 @@ O openJob automatiza o fluxo de candidaturas a vagas internacionais remotas (pag
 ### Requisitos
 
 - Docker + Docker Compose
-- (Para desenvolvimento local) Go 1.22+, Node 22+
+- (Para desenvolvimento local) Go 1.27+, Node 22+
 
 ### Início rápido
 
@@ -200,17 +200,16 @@ Caminhos testados e documentados em [`docs/adr/0001-mdns-local-hostname.md`](doc
 | `OPENJOB_PORT` | `8080` | Porta HTTP |
 | `OPENJOB_DB_PATH` | `/data/openjob.db` | Caminho do banco SQLite |
 | `OPENJOB_HOSTNAME` | `openjob.copilot` | Hostname anunciado via mDNS |
-| `OPENJOB_FEATURE_UI_FEED` | `false` | Feed vertical como home (CP16) |
-| `OPENJOB_FEATURE_EMAIL_SYNC` | `false` | Tracking de e-mail + pipeline `in_process` (CP17) |
-| `OPENJOB_FEATURE_CURRICULUM_EXPORT` | `false` | Exportação de currículo (B10) |
+| `OPENJOB_FEATURE_UI_FEED` | `true` | Feed vertical como home (CP16) |
+| `OPENJOB_FEATURE_EMAIL_SYNC` | `true` | Tracking de e-mail + pipeline `in_process` (CP17) |
+| `OPENJOB_FEATURE_CURRICULUM_EXPORT` | `true` | Exportação de currículo (B10) |
 | `OPENJOB_FEATURE_SCORE_DETERMINISTIC` | `true` | Scoring determinístico, sem IA (B11) |
 | `OPENJOB_FEATURE_KEYWORDS_DETERMINISTIC` | `true` | Extração determinística de keywords (B11) |
 | `OPENJOB_FEATURE_FILTER_DETERMINISTIC` | `true` | Filtro determinístico de currículo (B11) |
 
-Flags de UI/e-mail/exportação aceitam `true`/`1` (e `false`/`0`); qualquer outro
-valor fica desligado. As flags determinísticas vêm ligadas e podem ser definidas
-como `false`/`0` para rollback. Elas são expostas por `GET /api/features` para a
-SPA esconder UI inacabada até a fase correspondente entrar no ar.
+Todas as flags vêm ligadas no MVP e aceitam `true`/`1` (ou `false`/`0` para
+rollback); qualquer outro valor mantém o padrão. Elas são expostas por
+`GET /api/features` para a SPA esconder uma feature sem trocar o binário.
 
 ### Dados locais e segredos — ⚠️ leia
 
@@ -254,5 +253,12 @@ são servidos pelo fallback da SPA.
 | 10 | Notificações in-app + fila assíncrona de tarefas | ✅ este release — [plano](docs/plan/10-notificacoes-in-app.md) |
 | 11 | Distribuição: binário único, `.deb`, imagem Docker Hub e CI/CD por tag | ✅ este release — [plano](docs/plan/11-package-release.md) |
 | 12 | Design system + responsividade multi-dispositivo | ✅ este release — [plano](docs/plan/12-design.md) |
+| 13 | Dark mode + i18n (PT-BR, EN-US, ES-419) | ✅ este release — [plano](docs/plan/13-dark-mode-i18n.md) |
+| 14 | Expansão multi-mercado (APIs + scraping ético) | ✅ este release — [plano](docs/plan/14-multi-mercado-latam.md) |
+| 15 | Dashboard de estatísticas e ações na home | ✅ este release — [plano](docs/plan/15-dashboard.md) |
+| 16 | Feed vertical imersivo (estilo TikTok/Reels) | ✅ este release — [plano](docs/plan/16-infinite-timeline-design.md) |
+| 17 | Automação de e-mail, pipeline “em processo” e tags | ✅ este release — [plano](docs/plan/17-email-tracking-pipeline.md) |
+| 18–19 | Usuários/autenticação/OAuth e onboarding web | ⏭️ pós-MVP — [plano](docs/plan/README.md) |
 
-Melhorias pós-checkpoints (ex.: configuração de IA mais amigável, presets de provedores, multi-modelos): [`docs/backlog.md`](docs/backlog.md).
+Backlog do MVP (B1–B12) concluído ou decidido: [`docs/backlog.md`](docs/backlog.md).
+Notas de release e checklist de publicação: [`docs/release/v0.1.0.md`](docs/release/v0.1.0.md).

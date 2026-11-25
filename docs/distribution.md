@@ -90,10 +90,12 @@ o processo com código 2 e uma mensagem explicando o que corrigir.
 | `OPENJOB_PORT` | `--port` | `8080` | `8080`, ou a próxima livre até 8099 | 1–65535 |
 | `OPENJOB_DB_PATH` | `--db-path` | `/data/openjob.db` | `<diretório do usuário>/openjob.db` | não vazio |
 | `OPENJOB_HOSTNAME` | `--hostname` | `openjob.copilot` | `openjob.copilot` | nome DNS simples |
-| `OPENJOB_FEATURE_UI_FEED` | — | `false` | `false` | `true`/`1` liga; outro valor desliga |
-| `OPENJOB_FEATURE_EMAIL_SYNC` | — | `false` | `false` | idem |
-| `OPENJOB_FEATURE_CURRICULUM_EXPORT` | — | `false` | `false` | idem |
-| `OPENJOB_FEATURE_SCORE_DETERMINISTIC` | — | `false` | `false` | idem |
+| `OPENJOB_FEATURE_UI_FEED` | — | `true` | `true` | `false`/`0` desliga; outro valor mantém o default |
+| `OPENJOB_FEATURE_EMAIL_SYNC` | — | `true` | `true` | idem |
+| `OPENJOB_FEATURE_CURRICULUM_EXPORT` | — | `true` | `true` | idem |
+| `OPENJOB_FEATURE_SCORE_DETERMINISTIC` | — | `true` | `true` | idem (master switch do B11) |
+| `OPENJOB_FEATURE_KEYWORDS_DETERMINISTIC` | — | `true` | `true` | idem; exige o master switch |
+| `OPENJOB_FEATURE_FILTER_DETERMINISTIC` | — | `true` | `true` | idem; exige o master switch |
 
 `OPENJOB_CONTAINER=true` é um marcador interno da imagem (desliga os defaults
 por usuário, o navegador e a descoberta de LAN); não é configuração de produto.

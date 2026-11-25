@@ -38,6 +38,13 @@
 
 > O CP17 nasceu de uma sessão de chat indexada (`docs/context/6c7eea4c-71d0-49e7-9f5b-5c374f9b73c6.json`, msgs. 34–35) e está registrado no backlog como item promovido a checkpoint.
 
+> **Release do MVP (F0–F7):** o fechamento executável está em
+> [release-mvp.md](release-mvp.md). CP16/CP17, a revisão de UI do CP6 e o
+> backlog B1–B12 foram entregues ou decididos; a F7 (hardening) integra o CP11 e
+> publica a primeira versão. B5 (OAuth de provedores) e B7 (LinkedIn OAuth)
+> ficaram **no-go no MVP** — fallback manual mantido e decisão registrada no
+> [backlog](../backlog.md).
+
 > **CP18–CP19 são a sequência pós-CP17:** CP18 cria identidade e isolamento multiusuário; CP19 entrega o onboarding gráfico dentro da webapp. O CP11 concentra a distribuição (binário único, bootstrap mínimo, abertura do navegador e pacote `.deb`), sem configurar funcionalidades do produto no terminal.
 
 ## Artefatos transversais (mantidos desde o início)

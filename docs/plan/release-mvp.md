@@ -54,14 +54,15 @@ restante vira fase própria.
 | **F3** | B10 + B8 + B9 (currículo) | F2 (catálogo de erros) | 2–4 dias | Exportação + erros + cópia |
 | **F4** | B1 + B3 + B4 + B2 (UX de IA) | F2 | 5–7 dias | Onboarding + presets + perfis |
 | **F5** | B11 (backend determinístico) | F1 | 4–6 dias | Determinismo + performance |
-| **F6** | B7 (LinkedIn OAuth) | F4 | 5–8 dias | Spike go/no-go + importação |
-| **F7** | B5 (OAuth de provedores) | F4 | 5–8 dias | Spike go/no-go + conexão |
-| **F8** | Hardening e release | F1–F7 | 2–3 dias | Regressão completa |
+| **F6** | B7 (LinkedIn OAuth) — **no-go no MVP** | — | — | Decisão registrada; upload manual mantido |
+| **F7** | Hardening e release (B5 OAuth: **no-go no MVP**) | F1–F5 | 2–3 dias | Regressão completa |
 
-**Total estimado:** 33–55 dias úteis (7–11 semanas), dependendo dos gates de F6/F7.
+**Total estimado:** 28–39 dias úteis (6–8 semanas), sem os spikes de OAuth
+descartados (B5/B7).
 
 > As fases F3, F4 e F5 são independentes entre si e podem ser paralelizadas por
-> pessoas diferentes. F6 e F7 só começam depois de F4 (dependem da UX de perfis).
+> pessoas diferentes. A F7 (hardening) só começa depois de F1–F5; a F6 e o item
+> B5 foram encerrados como no-go no MVP, com fallback manual preservado.
 
 ---
 
@@ -287,6 +288,14 @@ erros amigáveis no upload/tailoring.
 **Gate:** usuário consegue copiar e exportar o currículo adaptado nos 3 formatos,
 e nenhum erro de upload/tailoring expõe detalhe interno.
 
+**Status (2026-11-23): concluída.**
+- **B10:** botão discreto de cópia na visualização e no diff, com tooltip e
+  feedback “Copiado!”.
+- **B8:** upload, conversão de PDF e tailoring usam o catálogo de erros da F2;
+  o backend mantém o detalhe no log e a UI mostra causa provável + ação.
+- **B9:** exportação do currículo adaptado em PDF (formatado para envio), TXT
+  (texto limpo, sem Markdown) e MD (download existente), coberta por e2e.
+
 ---
 
 ## 8. Fase 4 — UX de IA: B1 + B3 + B4 + B2 (5–7 dias)
@@ -379,35 +388,18 @@ mantendo contratos de API e explicabilidade.
 
 **Gate:** scoring determinístico, auditável e sem LLM; funcionalidade preservada.
 
----
-
-## 10. Fase 6 — LinkedIn OAuth: B7 (5–8 dias, com gate)
-
-**Objetivo:** importar o perfil do LinkedIn para o currículo-base, se viável.
-
-**Etapa 1 — Spike (1–2 dias):**
-- Verificar acesso à Member Data Portability API / LinkedIn Partner Program.
-- Confirmar se o escopo disponível retorna histórico profissional completo ou
-  apenas `openid profile email`.
-- **Gate go/no-go:** se não houver acesso viável, registrar decisão, manter o
-  fallback (upload de PDF/MD/TXT) e encerrar o item como “não viável no MVP”.
-
-**Etapa 2 — Implementação (4–6 dias, se go):**
-- Botão “Importar do LinkedIn” em `/curriculum`.
-- Fluxo OAuth 2.0, callback local, extração para Markdown estruturado.
-- Fallback explícito para upload manual.
-
-**Testes e verificação:**
-- Fluxo OAuth com conta de teste; erro/expiração cai no fallback.
-- Currículo importado editável e persistido em `curriculum.content_md`.
-- Nenhum token em log; revogação suportada.
-
-**Gate:** importação funciona ou decisão no-go documentada; em ambos os casos o
-upload manual continua funcional.
+**Status (2026-11-23): concluída.**
+- **B11:** `score_fit` por BM25 (Okapi, `k1=1.2`, `b=0.75`), keywords por
+  YAKE com fallback RAKE e filtro por currículo determinístico; contratos de API
+  preservados e nenhuma chamada de rede no caminho de scoring.
+- Flags `score.deterministic`, `keywords.deterministic` e
+  `filter.deterministic` com master switch e rollback por env (ADR 0041).
+- Cobertura: golden tests de determinismo, performance < 50 ms por vaga,
+  multilíngue PT-BR/EN-US/ES-419 e regressão de ranking/filtros (ADRs 0037–0042).
 
 ---
 
-## 11. Fase 7 — Hardening e release (2–3 dias)
+## 10. Fase 7 — Hardening e release (2–3 dias)
 
 **Objetivo:** validar o conjunto e publicar o MVP.
 
@@ -427,9 +419,38 @@ upload manual continua funcional.
 - Nenhum item de backlog aberto sem decisão registrada.
 - Fluxo ponta a ponta validado em celular e desktop.
 
+**Status (2026-11-25): concluída, com publicação e aceite manual pendentes.**
+- **CP11 integrado:** binário único (`version`/`serve`/`healthcheck`),
+  bootstrap mínimo por usuário, pacote `.deb` (GoReleaser/nfpm), imagem Docker
+  distroless não-root, Docker Compose e release por tag `vX.Y.Z` (ADRs 0011,
+  0012 e **0043** — o ADR da imagem Docker foi renumerado de 0036 para 0043
+  para não colidir com o ADR 0036 dos perfis LLM).
+- **Flags de release ligadas por padrão:** `ui.feed`, `email.sync` e
+  `curriculum.export` passam a `true` (rollback por `false`/`0`); as flags
+  determinísticas continuam ligadas. `.env.example`, Compose e README alinhados.
+- **Regressão:** `make vet`, `make test` e `make test-ui` verdes (43 e2e, 57
+  a11y e 63 visuais). O step de e2e do CI agora roda só o projeto `e2e` (antes
+  executava também visual/a11y) e os snapshots rodam na imagem Playwright
+  pinada, eliminando a divergência Debian × Ubuntu. Snapshots de `/settings`
+  foram atualizados para a seção “Uso de IA” da F5 e um locator ambíguo do e2e
+  da F4 foi corrigido.
+- **Migrações:** testes novos cobrem banco novo e upgrade `0007 → 0008`
+  preservando settings, currículo e vagas.
+- **Instalação limpa:** smoke de binário, `.deb` (instalação/upgrade/remoção/
+  purge preservam dados) e Docker (não-root, healthcheck, volume persistente,
+  env inválida) verdes.
+- **Segurança/a11y:** revisão de logs/redaction/permissões sem achados; axe sem
+  violações sérias na suíte de a11y.
+- **Documentação:** README, `docs/plan/README.md`, `docs/backlog.md`,
+  `docs/distribution.md` e notas em [`docs/release/v0.1.0.md`](../release/v0.1.0.md)
+  atualizados; B5/B7 registrados como no-go no MVP.
+- **Pendente (manual):** publicar imagem Docker/GitHub Release com os secrets do
+  repositório, criar/empurrar a tag `v0.1.0` e executar o aceite ponta a ponta
+  em celular e desktop (roteiro no checklist das notas de release).
+
 ---
 
-## 12. Matriz de rastreabilidade
+## 11. Matriz de rastreabilidade
 
 | Item | Fase | Teste principal |
 |---|---|---|
@@ -446,40 +467,41 @@ upload manual continua funcional.
 | B4 — free tier | F4 | E2E “começar de graça” |
 | B2 — múltiplos perfis | F4 | API CRUD + ativação + migração |
 | B11 — backend determinístico | F5 | Golden + determinismo + <50 ms |
-| B7 — LinkedIn OAuth | F6 | Spike go/no-go + OAuth |
-| B5 — OAuth de provedores | F7 | Spike go/no-go + OAuth |
-| Release | F8 | Regressão + instalação limpa |
+| CP11 — distribuição (binário/.deb/Docker) | F7 | Smoke de binário, `.deb` e container |
+| Release | F7 | Regressão + instalação limpa |
 
 ---
 
-## 13. Riscos transversais e mitigação
+## 12. Riscos transversais e mitigação
 
 | Risco | Impacto | Mitigação |
 |---|---|---|
 | Colisão de ADRs (CP15/16/17) | Documentação inconsistente | F0 renumera antes de codar |
 | Feed quebrar rotas existentes | Regressão de navegação | Lista preservada + testes de regressão |
 | Sync de e-mail gerar falsos positivos | Pipeline perde confiança | Confiança ≥ 0.8, sugestão, monotonicidade |
-| OAuth externo inviável | Bloqueio de B5/B7 | Spike com gate go/no-go; fallback manual |
+| OAuth externo inviável | Bloqueio de B5/B7 | Spike decidido: **no-go no MVP**; BYOK manual e upload PDF/MD/TXT mantidos |
 | Refactor B11 alterar ranking | Perda de qualidade percebida | Feature flag + golden tests + comparação |
 | Escopo crescer durante o release | Atraso | Itens novos vão para backlog, não para fase |
 
 ---
 
-## 14. Ordem de merge e liberação
+## 13. Ordem de merge e liberação
 
 1. F0 (infra/documentação) — merge direto.
 2. F1 (CP16) — merge com flag `ui.feed`; liberar para uso interno.
 3. F2 (CP17) — merge com flag `email.sync` desligada por padrão.
 4. F3, F4 e F5 — podem ser mescladas em qualquer ordem após F2/F1.
-5. F6 e F7 — somente após os spikes; se no-go, registrar e não bloquear.
-6. F8 — habilitar flags por padrão, validar e taguear o MVP.
+5. F6 (B7) e B5 — **no-go no MVP**: decisão registrada no backlog; não bloqueiam
+   o release.
+6. F7 (hardening) — integrar CP11, habilitar flags por padrão, validar e taguear
+   o MVP.
 
 
 ---
 
-## 15. Evolução pós-MVP — CP18 e CP19
+## 14. Evolução pós-MVP — CP18 e CP19
 
-As features seguintes são uma evolução posterior ao escopo congelado deste plano de release; não alteram os gates F0–F8 do MVP.
+As features seguintes são uma evolução posterior ao escopo congelado deste plano de release; não alteram os gates F0–F7 do MVP.
 
 - **CP18:** identidade, autenticação, isolamento multiusuário, perfil profissional e currículo-base; OAuth somente conforme viabilidade e escopos oficiais.
 - **CP19:** onboarding gráfico de primeira execução na webapp, com validação real e etapas opcionais não bloqueantes.
