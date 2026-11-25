@@ -20,8 +20,8 @@
 		"lint:ui": "node scripts/lint-ui.mjs && eslint src/routes",
 		"dev:ui": "OPENJOB_DEV_UI=1 vite dev",
 		"i18n:check": "node scripts/i18n-check.mjs",
-		"test:e2e": "playwright test",
-		"test:visual": "playwright test --project=visual-*",
+		"test:e2e": "playwright test --project=e2e",
+		"test:visual": "bash ../scripts/visual-test.sh",
 		"audit:a11y": "playwright test tests/a11y"
 	},
 	"devDependencies": {

@@ -18,8 +18,9 @@ services:
       OPENJOB_PORT: "8080"
       OPENJOB_DB_PATH: /data/openjob.db
       OPENJOB_HOSTNAME: ${OPENJOB_HOSTNAME:-openjob.copilot}
-      # Release flags (default off) — see the README for the full list.
-      # OPENJOB_FEATURE_UI_FEED: "true"
+      # Release flags default to on in the MVP; set to "false" for rollback.
+      # See the README for the full list of OPENJOB_FEATURE_* variables.
+      # OPENJOB_FEATURE_UI_FEED: "false"
     volumes:
       - openjob-data:/data
     restart: unless-stopped

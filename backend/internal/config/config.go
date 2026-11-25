@@ -7,9 +7,10 @@ import (
 	"strconv"
 )
 
-// Features are the MVP release flags. UI/email/export default to off so a merge
-// never exposes unfinished behavior; the deterministic B11 engines default to
-// on because they are the safe, local, no-cost path.
+// Features are the MVP release flags. All shipped features default to on at
+// release (F7 hardening); every flag can be set to false/0 for rollback. The
+// deterministic B11 engines are the safe, local, no-cost path and also default
+// to on.
 type Features struct {
 	// UIFeed enables the vertical feed (CP16).
 	UIFeed bool
@@ -84,19 +85,14 @@ func LoadWith(o Overrides) Config {
 		DBPathExplicit: dbSet,
 		Hostname:       hostname,
 		Features: Features{
-			UIFeed:                envBool("OPENJOB_FEATURE_UI_FEED"),
-			EmailSync:             envBool("OPENJOB_FEATURE_EMAIL_SYNC"),
-			CurriculumExport:      envBool("OPENJOB_FEATURE_CURRICULUM_EXPORT"),
+			UIFeed:                envBoolDefault("OPENJOB_FEATURE_UI_FEED", true),
+			EmailSync:             envBoolDefault("OPENJOB_FEATURE_EMAIL_SYNC", true),
+			CurriculumExport:      envBoolDefault("OPENJOB_FEATURE_CURRICULUM_EXPORT", true),
 			ScoreDeterministic:    envBoolDefault("OPENJOB_FEATURE_SCORE_DETERMINISTIC", true),
 			KeywordsDeterministic: envBoolDefault("OPENJOB_FEATURE_KEYWORDS_DETERMINISTIC", true),
 			FilterDeterministic:   envBoolDefault("OPENJOB_FEATURE_FILTER_DETERMINISTIC", true),
 		},
 	}
-}
-
-func envBool(key string) bool {
-	v, err := strconv.ParseBool(os.Getenv(key))
-	return err == nil && v
 }
 
 // envBoolDefault parses an explicit boolean, falling back to def when unset or

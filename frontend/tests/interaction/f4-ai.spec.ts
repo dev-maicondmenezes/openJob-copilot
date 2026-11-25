@@ -10,8 +10,8 @@ test.describe('Fase 4 — UX de IA', () => {
 		await gotoReady(page, '/settings');
 		await page.getByRole('button', { name: 'Adicionar provedor' }).click();
 
-		const presetSelect = page.getByLabel('Provedor');
-		const modelField = page.getByLabel('Modelo');
+		const presetSelect = page.getByLabel('Provedor', { exact: true });
+		const modelField = page.getByLabel('Modelo', { exact: true });
 
 		// Preset homologado: modelos vêm do catálogo em um select.
 		await expect(presetSelect).toHaveValue('gemini');
@@ -42,8 +42,8 @@ test.describe('Fase 4 — UX de IA', () => {
 		// Custom é internacionalizado e volta a ser texto simples, sem card.
 		await presetSelect.selectOption('custom');
 		await expect(presetSelect.locator('option[value="custom"]')).toHaveText('Personalizado');
-		await expect(page.getByLabel('Modelo')).toHaveJSProperty('tagName', 'INPUT');
-		await expect(page.getByLabel('Base URL')).toBeVisible();
+		await expect(page.getByLabel('Modelo', { exact: true })).toHaveJSProperty('tagName', 'INPUT');
+		await expect(page.getByLabel('Base URL', { exact: true })).toBeVisible();
 		await expect(page.getByText('Ajuda do provedor')).toHaveCount(0);
 	});
 
