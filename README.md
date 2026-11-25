@@ -1,7 +1,7 @@
 # openJob — Copiloto de Candidaturas
 
 > Local-first job application copilot (Go + SvelteKit, Docker, SQLite).
-> Spec: [`docs/context/spec.md`](docs/context/spec.md) · Plan: [`docs/plan/`](docs/plan/) · Backlog: [`docs/backlog.md`](docs/backlog.md)
+> Spec: [`docs/context/spec.md`](docs/context/spec.md) · Plan: [`docs/plan/`](docs/plan/) · Backlog: [`docs/backlog.md`](docs/backlog.md) · Changelog: [`CHANGELOG.md`](CHANGELOG.md)
 
 **Status: MVP — release candidate (F7 hardening).**
 
