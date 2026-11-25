@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=openJob
+GenericName=Job application copilot
+Comment=Local-first job application copilot (opens in your browser)
+Exec=openjob
+Terminal=true
+Categories=Office;
+Keywords=jobs;resume;applications;

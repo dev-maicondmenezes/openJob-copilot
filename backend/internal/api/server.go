@@ -21,6 +21,7 @@ import (
 	"github.com/maicondmenezes/openjob/internal/ranking"
 	"github.com/maicondmenezes/openjob/internal/store"
 	"github.com/maicondmenezes/openjob/internal/tasks"
+	"github.com/maicondmenezes/openjob/internal/version"
 	"github.com/maicondmenezes/openjob/web"
 	"golang.org/x/time/rate"
 )
@@ -214,6 +215,7 @@ func handleHealth(cfg config.Config, repo store.Repository) http.HandlerFunc {
 
 		payload := map[string]any{
 			"status":   "ok",
+			"version":  version.Version,
 			"hostname": cfg.Hostname,
 			"tasks": map[string]any{
 				"queued":          0,

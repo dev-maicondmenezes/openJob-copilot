@@ -1,0 +1,218 @@
+# Release — the ONLY way a version is published (CP11 §5.4).
+#
+# Trigger: push of a stable tag vX.Y.Z. The tag is the single source of the
+# version; there is no manual or branch-push publication.
+#
+#   verify ─► ci + frontend (reused gates) ─┬─► binaries (GoReleaser: binaries, checksums, .deb → DRAFT release)
+#                                           └─► docker   (multi-arch image → Docker Hub)
+#                                                         └─► publish-release (draft → public, only if both succeeded)
+#
+# Failure/rerun model: jobs are independent after the gates, so a failure in one
+# leaves the other's result visible (see the summary job). "Re-run failed jobs"
+# is idempotent: GoReleaser replaces its own DRAFT, and the Docker job skips a
+# version already pushed from the same commit — and refuses one pushed from a
+# different commit. Published versions are never overwritten.
+#
+# Required configuration (docs/release/ci-cd.md):
+#   secrets   DOCKERHUB_USERNAME, DOCKERHUB_TOKEN
+#   variable  DOCKERHUB_IMAGE   e.g. <namespace>/openjob
+name: release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false # never abort a half-done publication
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - id: v
+        name: validate tag format and provenance
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag '$TAG' is not a stable vX.Y.Z version"; exit 1
+          fi
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          # Releases are cut from main only.
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag $TAG ($GITHUB_SHA) is not on main"; exit 1
+          fi
+      - name: refuse to touch an already published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if STATE=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [ "$STATE" = "false" ]; then
+              echo "::error::Release $GITHUB_REF_NAME is already published; versions are immutable. Cut a new tag."; exit 1
+            fi
+            echo "Draft release exists (partial earlier run) — it will be replaced."
+          fi
+
+  # Same gates as PRs, reused verbatim: no duplicated or divergent definitions.
+  ci:
+    needs: verify
+    uses: ./.github/workflows/ci.yml
+  frontend:
+    needs: verify
+    uses: ./.github/workflows/frontend.yml
+
+  binaries:
+    needs: [verify, ci, frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the (draft) GitHub Release — GITHUB_TOKEN is enough, no PAT
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0 # GoReleaser needs history + tags
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci && npm run build
+        working-directory: frontend
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: goreleaser/goreleaser-action@9c156ee8a17a598857849441385a2041ef570552 # v6.3.0
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  docker:
+    needs: [verify, ci, frontend]
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: check Docker Hub configuration
+        env:
+          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          [ -n "$IMAGE" ]   || { echo "::error::Repository variable DOCKERHUB_IMAGE is not set (e.g. <namespace>/openjob)"; exit 1; }
+          [ -n "$DH_USER" ] || { echo "::error::Secret DOCKERHUB_USERNAME is not set"; exit 1; }
+          [ -n "$DH_TOKEN" ] || { echo "::error::Secret DOCKERHUB_TOKEN is not set"; exit 1; }
+      - uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - id: exists
+        name: immutability check for ${{ env.VERSION }}
+        run: |
+          if RAW=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .}}' 2>/dev/null); then
+            REV=$(echo "$RAW" | jq -r '[.. | objects | .["org.opencontainers.image.revision"]? // empty] | first // empty')
+            if [ "$REV" = "$GITHUB_SHA" ]; then
+              echo "published=same" >> "$GITHUB_OUTPUT"
+              echo "$IMAGE:$VERSION already published from this commit — skipping (idempotent rerun)."
+            else
+              echo "::error::$IMAGE:$VERSION already exists from a DIFFERENT commit (${REV:-unknown}); refusing to overwrite an immutable version."
+              exit 1
+            fi
+          else
+            echo "published=no" >> "$GITHUB_OUTPUT"
+          fi
+      - id: meta
+        if: steps.exists.outputs.published == 'no'
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=true # only stable vX.Y.Z tags reach this workflow
+          tags: type=semver,pattern={{version}}
+      - id: ts
+        run: echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - name: build and push (linux/amd64 + linux/arm64)
+        if: steps.exists.outputs.published == 'no'
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ env.VERSION }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ steps.ts.outputs.date }}
+            SOURCE=${{ github.server_url }}/${{ github.repository }}
+          provenance: true
+          sbom: true
+          cache-from: |
+            type=gha,scope=docker-linux/amd64
+            type=gha,scope=docker-linux/arm64
+
+  publish-release:
+    needs: [binaries, docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: publish the draft (binaries AND image are both out)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ASSETS=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name')
+          echo "$ASSETS"
+          echo "$ASSETS" | grep -qx checksums.txt || { echo "::error::checksums.txt missing from the release"; exit 1; }
+          echo "$ASSETS" | grep -Eq '_amd64\.deb$' || { echo "::error::amd64 .deb missing"; exit 1; }
+          echo "$ASSETS" | grep -Eq '_arm64\.deb$' || { echo "::error::arm64 .deb missing"; exit 1; }
+          gh release edit "$GITHUB_REF_NAME" --draft=false --verify-tag
+
+  # Always runs: says plainly what got published and what did not.
+  summary:
+    if: always()
+    needs: [verify, ci, frontend, binaries, docker, publish-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: report
+        env:
+          R_VERIFY: ${{ needs.verify.result }}
+          R_CI: ${{ needs.ci.result }}
+          R_FRONTEND: ${{ needs.frontend.result }}
+          R_BINARIES: ${{ needs.binaries.result }}
+          R_DOCKER: ${{ needs.docker.result }}
+          R_PUBLISH: ${{ needs.publish-release.result }}
+        run: |
+          {
+            echo "## Release ${GITHUB_REF_NAME}"
+            echo
+            echo "| Step | Result |"
+            echo "|---|---|"
+            echo "| Tag/provenance check | $R_VERIFY |"
+            echo "| CI gates (backend, smoke, packaging, docker) | $R_CI |"
+            echo "| Frontend gates | $R_FRONTEND |"
+            echo "| Binaries + checksums + .deb (draft release) | $R_BINARIES |"
+            echo "| Docker Hub image | $R_DOCKER |"
+            echo "| GitHub Release made public | $R_PUBLISH |"
+            echo
+            if [ "$R_BINARIES" = success ] && [ "$R_DOCKER" != success ]; then
+              echo "⚠️ Binaries are in a **draft** release but the image was not published. Fix and use *Re-run failed jobs*; the release stays hidden until both are out."
+            elif [ "$R_BINARIES" != success ] && [ "$R_DOCKER" = success ]; then
+              echo "⚠️ The image **is on Docker Hub** but the GitHub Release is incomplete. Use *Re-run failed jobs*: the Docker job will detect the same commit and skip."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

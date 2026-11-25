@@ -11,7 +11,7 @@ func TestLoadDefaults(t *testing.T) {
 	} {
 		t.Setenv(key, "")
 	}
-	// t.Setenv with "" still sets an empty value, which envOr treats as unset.
+	// t.Setenv with "" still sets an empty value, which pick treats as unset.
 	cfg := Load()
 	if cfg.Port != "8080" {
 		t.Errorf("Port = %q, want 8080", cfg.Port)
