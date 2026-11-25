@@ -62,6 +62,8 @@
 		justify-content: center;
 		padding: var(--space-4);
 		background: var(--overlay-backdrop);
+		backdrop-filter: blur(6px);
+		-webkit-backdrop-filter: blur(6px);
 	}
 
 	.modal {

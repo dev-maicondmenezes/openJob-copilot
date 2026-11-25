@@ -4,6 +4,7 @@ go 1.27
 
 require (
 	github.com/emersion/go-imap/v2 v2.0.0-beta.9
+	github.com/freeeve/go-stemmers v0.0.0-20260606195828-3c78df9017f5
 	github.com/go-chi/chi/v5 v5.2.2
 	github.com/ledongthuc/pdf v0.0.0-20261020125853-5e46805f718e
 	go.uber.org/goleak v1.3.0

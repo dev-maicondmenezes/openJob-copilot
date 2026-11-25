@@ -1,0 +1,13 @@
+{
+  "accepted": true,
+  "match_count": 3,
+  "matched_terms": [
+    "cuidado ao paciente",
+    "prontuário eletrônico",
+    "triagem"
+  ],
+  "missing_terms": [
+    "bacharelado em enfermagem"
+  ],
+  "score": 27
+}

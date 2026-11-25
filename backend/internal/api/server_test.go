@@ -182,7 +182,7 @@ func TestSPAImmutableAssetsGetImmutableCache(t *testing.T) {
 	}
 }
 
-func TestFeaturesEndpointDefaultsOff(t *testing.T) {
+func TestFeaturesEndpointZeroConfigOff(t *testing.T) {
 	srv := newTestServer(t)
 	defer srv.Close()
 

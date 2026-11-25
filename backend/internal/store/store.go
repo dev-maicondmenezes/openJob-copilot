@@ -8,6 +8,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/maicondmenezes/openjob/internal/search"
 )
 
 // ErrNotFound is returned when a requested row does not exist.
@@ -327,4 +329,14 @@ type Repository interface {
 	CountTasksFailedSince(ctx context.Context, since time.Time) (int, error)
 	CancelAllQueuedTasks(ctx context.Context, errMsg string) (int64, error) // bulk action
 	RetryAllFailedTasks(ctx context.Context) (int64, error)                 // bulk action
+
+	// search index (Fase 5 / B11.3) — FTS5-backed global job index. The
+	// methods implement search.Index without leaking SQL into the engines.
+	Upsert(ctx context.Context, doc search.Document) error
+	Delete(ctx context.Context, jobID int64) error
+	Rebuild(ctx context.Context, docs []search.Document) error
+	Search(ctx context.Context, match string, weights search.Weights, limit int) ([]search.Hit, error)
+	TermDocFreq(ctx context.Context, term string) (int, error)
+	Stats(ctx context.Context) (search.Stats, error)
+	Count(ctx context.Context) (int, error)
 }

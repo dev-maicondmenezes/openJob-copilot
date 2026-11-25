@@ -34,7 +34,6 @@
 
 	let jobs: Job[] = $state([]);
 	let loading = $state(true);
-	let llmConfigured = $state(true);
 
 	// Discovery
 	let discovering = $state(false);
@@ -48,7 +47,6 @@
 	let saving = $state(false);
 	let fetching = $state(false);
 
-	let scoringId = $state<number | null>(null);
 	let actingId = $state<number | null>(null);
 	let status: { kind: 'success' | 'error'; text: string } | null = $state(null);
 
@@ -207,7 +205,7 @@
 	}
 
 	onMount(async () => {
-		await Promise.all([loadJobs(), checkLLM(), loadDiscoveryConfig()]);
+		await Promise.all([loadJobs(), loadDiscoveryConfig()]);
 	});
 
 	async function loadDiscoveryConfig() {
@@ -289,15 +287,6 @@
 		}
 	}
 
-	async function checkLLM() {
-		try {
-			const res = await fetch('/api/settings/llm-key');
-			if (res.ok) llmConfigured = (await res.json()).configured;
-		} catch {
-			// silencioso
-		}
-	}
-
 	async function save() {
 		if (!canSave) return;
 		saving = true;
@@ -321,25 +310,6 @@
 			status = { kind: 'error', text: t('jobs.error.save_network') };
 		} finally {
 			saving = false;
-		}
-	}
-
-	async function score(job: Job) {
-		scoringId = job.id;
-		status = null;
-		try {
-			const res = await fetch(`/api/jobs/${job.id}/score`, { method: 'POST' });
-			const body = await res.json().catch(() => ({}));
-			if (res.ok) {
-				status = { kind: 'success', text: t('jobs.flash.scored', { score: body.score_fit }) };
-			} else {
-				status = { kind: 'error', text: errorText(body, t('jobs.error.score_http', { status: res.status })) };
-			}
-		} catch {
-			status = { kind: 'error', text: t('jobs.error.score_network') };
-		} finally {
-			scoringId = null;
-			await loadJobs();
 		}
 	}
 
@@ -418,7 +388,7 @@
 		selectedIds = [];
 	}
 
-	async function runBatch(action: 'score' | 'approve' | 'discard'): Promise<void> {
+	async function runBatch(action: 'approve' | 'discard'): Promise<void> {
 		const targets = jobs.filter((job) => selectedIds.includes(job.id));
 		if (targets.length === 0) return;
 		const verb = t(`jobs.flash.batch_verb_${action}`);
@@ -541,12 +511,6 @@
 	<Alert severity={status.kind} title={status.kind === 'error' ? t('common.attention') : t('common.success')}>{status.text}</Alert>
 {/if}
 
-{#if !llmConfigured}
-	<Alert severity="warning" title={t('jobs.provider_warning_title')}>
-		O botão {t('common.score')} precisa da sua chave. <a href="/settings">Configurar</a>
-	</Alert>
-{/if}
-
 <Card class="keywords-strip">
 	<div class="keywords-strip-inner">
 		<span class="keywords-icon"><Icon name="sliders" size={20} /></span>
@@ -625,14 +589,6 @@
 		disabled={selectedIds.length === 0}
 		onclick={() => runBatch('approve')}
 	/>
-	<IconButton
-		icon="sparkles"
-		label={t('jobs.batch.score')}
-		variant="secondary"
-		size={size}
-		disabled={selectedIds.length === 0}
-		onclick={() => runBatch('score')}
-	/>
 {/snippet}
 
 {#snippet barActions(size: 'sm' | 'md')}
@@ -666,7 +622,6 @@
 	<div class="mobile-actions" role="toolbar" aria-label={t('jobs.batch.actions')}>
 		<span class="selection-count">{t('jobs.batch.selected', { count: selectedIds.length })}</span>
 		<IconButton icon="check" label={t('jobs.batch.approve')} variant="primary" onclick={() => runBatch('approve')} />
-		<IconButton icon="sparkles" label={t('jobs.batch.score')} variant="secondary" onclick={() => runBatch('score')} />
 		<IconButton icon="trash" label={t('jobs.batch.discard')} variant="danger" onclick={() => runBatch('discard')} />
 	</div>
 {/if}

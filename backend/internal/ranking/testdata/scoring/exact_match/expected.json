@@ -1,0 +1,17 @@
+{
+  "score": 95,
+  "raw_bm25": 25.03410932942811,
+  "matched_terms": [
+    "Go",
+    "APIs",
+    "Docker",
+    "Kubernetes",
+    "PostgreSQL",
+    "REST",
+    "alta",
+    "disponibilidade",
+    "distribuídos",
+    "serviços"
+  ],
+  "missing_terms": []
+}

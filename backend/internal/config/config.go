@@ -7,8 +7,9 @@ import (
 	"strconv"
 )
 
-// Features are the MVP release flags. They default to off so a merge never
-// exposes unfinished behavior; enable them per environment as each phase ships.
+// Features are the MVP release flags. UI/email/export default to off so a merge
+// never exposes unfinished behavior; the deterministic B11 engines default to
+// on because they are the safe, local, no-cost path.
 type Features struct {
 	// UIFeed enables the vertical feed (CP16).
 	UIFeed bool
@@ -16,8 +17,25 @@ type Features struct {
 	EmailSync bool
 	// CurriculumExport enables resume export (B10).
 	CurriculumExport bool
-	// ScoreDeterministic enables the deterministic scoring refactor (B11).
+	// ScoreDeterministic is the master switch of the deterministic
+	// infrastructure (B11). Specific capabilities can only be enabled when
+	// this switch is on.
 	ScoreDeterministic bool
+	// KeywordsDeterministic enables deterministic keyword extraction.
+	KeywordsDeterministic bool
+	// FilterDeterministic enables the deterministic resume filter.
+	FilterDeterministic bool
+}
+
+// KeywordsEnabled reports whether deterministic keyword extraction is active.
+// The master switch always wins over the specific flag.
+func (f Features) KeywordsEnabled() bool {
+	return f.ScoreDeterministic && f.KeywordsDeterministic
+}
+
+// FilterEnabled reports whether the deterministic resume filter is active.
+func (f Features) FilterEnabled() bool {
+	return f.ScoreDeterministic && f.FilterDeterministic
 }
 
 // Config holds the runtime configuration of the openjob server.
@@ -41,10 +59,12 @@ func Load() Config {
 		DBPath:   envOr("OPENJOB_DB_PATH", "/data/openjob.db"),
 		Hostname: envOr("OPENJOB_HOSTNAME", "openjob.copilot"),
 		Features: Features{
-			UIFeed:             envBool("OPENJOB_FEATURE_UI_FEED"),
-			EmailSync:          envBool("OPENJOB_FEATURE_EMAIL_SYNC"),
-			CurriculumExport:   envBool("OPENJOB_FEATURE_CURRICULUM_EXPORT"),
-			ScoreDeterministic: envBool("OPENJOB_FEATURE_SCORE_DETERMINISTIC"),
+			UIFeed:                envBool("OPENJOB_FEATURE_UI_FEED"),
+			EmailSync:             envBool("OPENJOB_FEATURE_EMAIL_SYNC"),
+			CurriculumExport:      envBool("OPENJOB_FEATURE_CURRICULUM_EXPORT"),
+			ScoreDeterministic:    envBoolDefault("OPENJOB_FEATURE_SCORE_DETERMINISTIC", true),
+			KeywordsDeterministic: envBoolDefault("OPENJOB_FEATURE_KEYWORDS_DETERMINISTIC", true),
+			FilterDeterministic:   envBoolDefault("OPENJOB_FEATURE_FILTER_DETERMINISTIC", true),
 		},
 	}
 }
@@ -52,6 +72,20 @@ func Load() Config {
 func envBool(key string) bool {
 	v, err := strconv.ParseBool(os.Getenv(key))
 	return err == nil && v
+}
+
+// envBoolDefault parses an explicit boolean, falling back to def when unset or
+// invalid. Used by the deterministic flags, which default to enabled.
+func envBoolDefault(key string, def bool) bool {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return def
+	}
+	v, err := strconv.ParseBool(raw)
+	if err != nil {
+		return def
+	}
+	return v
 }
 
 func envOr(key, fallback string) string {

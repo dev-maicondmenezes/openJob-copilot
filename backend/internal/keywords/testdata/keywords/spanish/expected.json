@@ -1,0 +1,86 @@
+{
+  "keywords": [
+    {
+      "text": "estados financieros control",
+      "normalized": "estad financier control",
+      "section": "experiencia",
+      "source": "yake",
+      "rank": 1,
+      "score": 0.042857
+    },
+    {
+      "text": "avanzado SAP análisis",
+      "normalized": "avanz sap analisis",
+      "section": "habilidades",
+      "source": "yake",
+      "rank": 2,
+      "score": 0.042857
+    },
+    {
+      "text": "experiencia auditoría contabilidad",
+      "normalized": "experient auditor contabil",
+      "section": "resumen",
+      "source": "yake",
+      "rank": 3,
+      "score": 0.042857
+    },
+    {
+      "text": "estados financieros",
+      "normalized": "estad financier",
+      "section": "experiencia",
+      "source": "yake",
+      "rank": 4,
+      "score": 0.07619
+    },
+    {
+      "text": "avanzado SAP",
+      "normalized": "avanz sap",
+      "section": "habilidades",
+      "source": "yake",
+      "rank": 5,
+      "score": 0.07619
+    },
+    {
+      "text": "experiencia auditoría",
+      "normalized": "experient auditor",
+      "section": "resumen",
+      "source": "yake",
+      "rank": 6,
+      "score": 0.07619
+    },
+    {
+      "text": "financieros control inventarios",
+      "normalized": "financier control inventari",
+      "section": "experiencia",
+      "source": "yake",
+      "rank": 7,
+      "score": 0.085714
+    },
+    {
+      "text": "SAP análisis financiero",
+      "normalized": "sap analisis financier",
+      "section": "habilidades",
+      "source": "yake",
+      "rank": 8,
+      "score": 0.085714
+    },
+    {
+      "text": "auditoría contabilidad general",
+      "normalized": "auditor contabil general",
+      "section": "resumen",
+      "source": "yake",
+      "rank": 9,
+      "score": 0.085714
+    },
+    {
+      "text": "Preparación estados financieros",
+      "normalized": "prepar estad financier",
+      "section": "experiencia",
+      "source": "yake",
+      "rank": 10,
+      "score": 0.1
+    }
+  ],
+  "algorithm_version": "yake-rake-1.0",
+  "resource_version": "1.0.0"
+}

@@ -7,6 +7,7 @@ func TestLoadDefaults(t *testing.T) {
 		"OPENJOB_PORT", "OPENJOB_DB_PATH", "OPENJOB_HOSTNAME",
 		"OPENJOB_FEATURE_UI_FEED", "OPENJOB_FEATURE_EMAIL_SYNC",
 		"OPENJOB_FEATURE_CURRICULUM_EXPORT", "OPENJOB_FEATURE_SCORE_DETERMINISTIC",
+		"OPENJOB_FEATURE_KEYWORDS_DETERMINISTIC", "OPENJOB_FEATURE_FILTER_DETERMINISTIC",
 	} {
 		t.Setenv(key, "")
 	}
@@ -21,8 +22,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Hostname != "openjob.copilot" {
 		t.Errorf("Hostname = %q, want openjob.copilot", cfg.Hostname)
 	}
-	if cfg.Features != (Features{}) {
-		t.Errorf("Features = %+v, want all disabled", cfg.Features)
+	want := Features{ScoreDeterministic: true, KeywordsDeterministic: true, FilterDeterministic: true}
+	if cfg.Features != want {
+		t.Errorf("Features = %+v, want deterministic defaults enabled", cfg.Features)
 	}
 }
 
@@ -47,7 +49,24 @@ func TestLoadFeatures(t *testing.T) {
 	if !cfg.Features.UIFeed || !cfg.Features.EmailSync || !cfg.Features.CurriculumExport {
 		t.Errorf("Features = %+v, want UI feed, email sync and export enabled", cfg.Features)
 	}
-	if cfg.Features.ScoreDeterministic {
-		t.Errorf("ScoreDeterministic = true, want false for invalid value")
+	if !cfg.Features.ScoreDeterministic {
+		t.Errorf("ScoreDeterministic = false, want true (invalid value falls back to the safe default)")
+	}
+}
+
+func TestDeterministicFeatureGating(t *testing.T) {
+	t.Setenv("OPENJOB_FEATURE_SCORE_DETERMINISTIC", "false")
+	t.Setenv("OPENJOB_FEATURE_KEYWORDS_DETERMINISTIC", "true")
+	t.Setenv("OPENJOB_FEATURE_FILTER_DETERMINISTIC", "true")
+
+	cfg := Load()
+	if cfg.Features.KeywordsEnabled() || cfg.Features.FilterEnabled() {
+		t.Fatalf("specific flags must not bypass the master switch: %+v", cfg.Features)
+	}
+
+	t.Setenv("OPENJOB_FEATURE_SCORE_DETERMINISTIC", "true")
+	cfg = Load()
+	if !cfg.Features.KeywordsEnabled() || !cfg.Features.FilterEnabled() {
+		t.Fatalf("flags should be enabled with the master switch: %+v", cfg.Features)
 	}
 }

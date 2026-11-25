@@ -1,0 +1,86 @@
+{
+  "keywords": [
+    {
+      "text": "cross-functional teams managed",
+      "normalized": "cross-functional team manag",
+      "section": "experience",
+      "source": "yake",
+      "rank": 1,
+      "score": 0.033333
+    },
+    {
+      "text": "content marketing Google",
+      "normalized": "content market googl",
+      "section": "skills",
+      "source": "yake",
+      "rank": 2,
+      "score": 0.042857
+    },
+    {
+      "text": "manager experience brand",
+      "normalized": "manag experi brand",
+      "section": "summary",
+      "source": "yake",
+      "rank": 3,
+      "score": 0.033333
+    },
+    {
+      "text": "teams managed advertising",
+      "normalized": "team manag advertis",
+      "section": "experience",
+      "source": "yake",
+      "rank": 4,
+      "score": 0.066667
+    },
+    {
+      "text": "content marketing",
+      "normalized": "content market",
+      "section": "skills",
+      "source": "yake",
+      "rank": 5,
+      "score": 0.07619
+    },
+    {
+      "text": "experience brand strategy",
+      "normalized": "experi brand strategi",
+      "section": "summary",
+      "source": "yake",
+      "rank": 6,
+      "score": 0.066667
+    },
+    {
+      "text": "cross-functional teams",
+      "normalized": "cross-functional team",
+      "section": "experience",
+      "source": "yake",
+      "rank": 7,
+      "score": 0.066667
+    },
+    {
+      "text": "marketing Google Analytics",
+      "normalized": "market googl analyt",
+      "section": "skills",
+      "source": "yake",
+      "rank": 8,
+      "score": 0.085714
+    },
+    {
+      "text": "manager experience",
+      "normalized": "manag experi",
+      "section": "summary",
+      "source": "yake",
+      "rank": 9,
+      "score": 0.066667
+    },
+    {
+      "text": "managed advertising budgets",
+      "normalized": "manag advertis budget",
+      "section": "experience",
+      "source": "yake",
+      "rank": 10,
+      "score": 0.1
+    }
+  ],
+  "algorithm_version": "yake-rake-1.0",
+  "resource_version": "1.0.0"
+}

@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { t } from '#lib/i18n/t.js';
 	import { errorText, readErrorBody } from '#lib/i18n/errors.js';
+	import { toast } from '#lib/toast.svelte.ts';
 	import { onMount } from 'svelte';
 	import SettingsNav from '#lib/components/SettingsNav.svelte';
 	import PageHeader from '#lib/ui/PageHeader.svelte';
 	import Card from '#lib/ui/Card.svelte';
+	import Modal from '#lib/ui/Modal.svelte';
 	import Field from '#lib/ui/Field.svelte';
 	import Input from '#lib/ui/Input.svelte';
 	import Select from '#lib/ui/Select.svelte';
@@ -13,6 +15,7 @@
 	import IconButton from '#lib/ui/IconButton.svelte';
 	import Alert from '#lib/ui/Alert.svelte';
 	import Badge from '#lib/ui/Badge.svelte';
+	import Switch from '#lib/ui/Switch.svelte';
 	import EmptyState from '#lib/ui/EmptyState.svelte';
 	import Icon from '#lib/ui/Icon.svelte';
 
@@ -54,7 +57,6 @@
 	let profiles = $state<Profile[]>([]);
 	let loading = $state(true);
 	let loadError = $state('');
-	let status: { kind: 'success' | 'error'; text: string } | null = $state(null);
 
 	let editing = $state<string | null>(null);
 	let formPresetId = $state(CUSTOM);
@@ -68,6 +70,10 @@
 	let activatingId = $state('');
 	let deletingId = $state('');
 
+	let aiScore = $state(false);
+	let aiLoading = $state(true);
+	let aiSaving = $state(false);
+
 	const editingProfile = $derived(profiles.find((p) => p.id === editing) ?? null);
 	const activeProfile = $derived(profiles.find((p) => p.active) ?? null);
 	const selectedPreset = $derived(presets.find((p) => p.id === formPresetId) ?? null);
@@ -80,6 +86,41 @@
 	]);
 	const providerLinksVisible = $derived(!isCustom && selectedPreset !== null);
 	const providerNeedsKey = $derived(isCustom || Boolean(selectedPreset?.requires_key));
+
+	async function loadAIUsage() {
+		try {
+			const res = await fetch('/api/settings/ai');
+			if (!res.ok) throw new Error('load failed');
+			const data = await res.json();
+			aiScore = data.score === true;
+		} catch {
+			// mantém o padrão determinístico
+		} finally {
+			aiLoading = false;
+		}
+	}
+
+	async function setAI(value: boolean): Promise<void> {
+		const previous = aiScore;
+		aiScore = value;
+		aiSaving = true;
+		try {
+			const res = await fetch('/api/settings/ai', {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ score: value })
+			});
+			if (!res.ok) throw new Error('save failed');
+			const data = await res.json();
+			aiScore = data.score === true;
+			toast('success', t('settings.ai.saved'));
+		} catch {
+			aiScore = previous;
+			toast('error', t('settings.ai.error'));
+		} finally {
+			aiSaving = false;
+		}
+	}
 
 	async function load(initial = false) {
 		if (initial) loading = true;
@@ -115,7 +156,6 @@
 	}
 
 	function startCreate(presetId = defaultPresetId) {
-		status = null;
 		editing = 'new';
 		formName = '';
 		formApiKey = '';
@@ -124,7 +164,6 @@
 	}
 
 	function startEdit(profile: Profile) {
-		status = null;
 		editing = profile.id;
 		formName = profile.name;
 		formBaseUrl = profile.base_url;
@@ -142,20 +181,19 @@
 
 	async function save() {
 		if (!formModel.trim()) {
-			status = { kind: 'error', text: t('settings.error.model_required') };
+			toast('error', t('settings.error.model_required'));
 			return;
 		}
 		if (!formBaseUrl.trim()) {
-			status = { kind: 'error', text: t('settings.error.base_url_required') };
+			toast('error', t('settings.error.base_url_required'));
 			return;
 		}
 		const keepsLocalPlaceholder = editingProfile?.local === true && !formApiKey.trim();
 		if (providerNeedsKey && (!formApiKey.trim() && (editing === 'new' || keepsLocalPlaceholder))) {
-			status = { kind: 'error', text: t('settings.error.key_required') };
+			toast('error', t('settings.error.key_required'));
 			return;
 		}
 		saving = true;
-		status = null;
 		const wasNew = editing === 'new';
 		try {
 			const body = {
@@ -179,22 +217,19 @@
 							body: JSON.stringify(body)
 						});
 			if (!res.ok) {
-				status = {
-					kind: 'error',
-					text: errorText(await readErrorBody(res), t('settings.error.save_http', { status: res.status }))
-				};
+				toast(
+					'error',
+					errorText(await readErrorBody(res), t('settings.error.save_http', { status: res.status }))
+				);
 				return;
 			}
 			await load();
 			editing = null;
 			formApiKey = '';
 			showKey = false;
-			status = {
-				kind: 'success',
-				text: t(wasNew ? 'settings.profiles.created' : 'settings.profiles.saved')
-			};
+			toast('success', t(wasNew ? 'settings.profiles.created' : 'settings.profiles.saved'));
 		} catch {
-			status = { kind: 'error', text: t('settings.error.save_network') };
+			toast('error', t('settings.error.save_network'));
 		} finally {
 			saving = false;
 		}
@@ -202,7 +237,6 @@
 
 	async function activate(id: string) {
 		activatingId = id;
-		status = null;
 		try {
 			const res = await fetch('/api/settings/llm/activate', {
 				method: 'POST',
@@ -210,16 +244,16 @@
 				body: JSON.stringify({ id })
 			});
 			if (!res.ok) {
-				status = {
-					kind: 'error',
-					text: errorText(await readErrorBody(res), t('settings.error.save_http', { status: res.status }))
-				};
+				toast(
+					'error',
+					errorText(await readErrorBody(res), t('settings.error.save_http', { status: res.status }))
+				);
 				return;
 			}
 			await load();
-			status = { kind: 'success', text: t('settings.profiles.activated') };
+			toast('success', t('settings.profiles.activated'));
 		} catch {
-			status = { kind: 'error', text: t('settings.error.save_network') };
+			toast('error', t('settings.error.save_network'));
 		} finally {
 			activatingId = '';
 		}
@@ -227,15 +261,16 @@
 
 	async function test(id: string) {
 		testingId = id;
-		status = null;
 		try {
 			const res = await fetch(`/api/settings/llm/profiles/${id}/test`, { method: 'POST' });
 			const result: PingResult = await res.json().catch(() => ({ ok: false }));
-			status = result.ok
-				? { kind: 'success', text: t('settings.error.ping_ok') }
-				: { kind: 'error', text: errorText(result, t('settings.error.ping_fail')) };
+			if (result.ok) {
+				toast('success', t('settings.error.ping_ok'));
+			} else {
+				toast('error', errorText(result, t('settings.error.ping_fail')));
+			}
 		} catch {
-			status = { kind: 'error', text: t('settings.error.ping_network') };
+			toast('error', t('settings.error.ping_network'));
 		} finally {
 			testingId = '';
 		}
@@ -244,26 +279,25 @@
 	async function remove(profile: Profile) {
 		if (!window.confirm(t('settings.profiles.delete_confirm', { name: profile.name }))) return;
 		deletingId = profile.id;
-		status = null;
 		try {
 			const res = await fetch(`/api/settings/llm/profiles/${profile.id}`, { method: 'DELETE' });
 			if (!res.ok) {
-				status = {
-					kind: 'error',
-					text: errorText(await readErrorBody(res), t('settings.error.save_http', { status: res.status }))
-				};
+				toast(
+					'error',
+					errorText(await readErrorBody(res), t('settings.error.save_http', { status: res.status }))
+				);
 				return;
 			}
 			await load();
-			status = { kind: 'success', text: t('settings.profiles.deleted') };
+			toast('success', t('settings.profiles.deleted'));
 		} catch {
-			status = { kind: 'error', text: t('settings.error.save_network') };
+			toast('error', t('settings.error.save_network'));
 		} finally {
 			deletingId = '';
 		}
 	}
 
-	onMount(() => load(true));
+	onMount(() => Promise.all([load(true), loadAIUsage()]));
 </script>
 
 <svelte:head>
@@ -278,9 +312,7 @@
 
 <SettingsNav active="llm" />
 
-{#if status}
-	<Alert severity={status.kind}>{status.text}</Alert>
-{/if}
+<div class="settings-stack">
 
 <Card title={t('settings.card.llm_title')} subtitle={t('settings.card.llm_desc')}>
 	{#snippet actions()}
@@ -374,12 +406,25 @@
 	{/if}
 </Card>
 
+<Card title={t('settings.card.ai_usage_title')} subtitle={t('settings.card.ai_usage_desc')}>
+	<Switch
+		label={t('settings.ai.score_label')}
+		description={t('settings.ai.score_desc')}
+		checked={aiScore}
+		disabled={aiLoading || aiSaving}
+		onchange={(event) => void setAI((event.currentTarget as HTMLInputElement).checked)}
+	/>
+	<p class="hint">{t('settings.ai.hint')}</p>
+</Card>
+</div>
+
 {#if editing !== null}
-	<Card
+	<Modal
 		title={editing === 'new' ? t('settings.profiles.create_title') : t('settings.profiles.edit_title')}
-		subtitle={t('settings.profiles.form_subtitle')}
+		description={t('settings.profiles.form_subtitle')}
+		onclose={cancelEdit}
 	>
-		<form onsubmit={(e) => { e.preventDefault(); save(); }}>
+		<form id="provider-form" onsubmit={(e) => { e.preventDefault(); save(); }}>
 			<Field label={t('settings.profiles.name')} for="profile-name" hint={t('settings.profiles.name_hint')}>
 				<Input
 					id="profile-name"
@@ -493,15 +538,21 @@
 				</Card>
 			{/if}
 
-			<div class="form-actions">
-				<Button type="submit" loading={saving}>{t('common.save')}</Button>
-				<Button type="button" variant="ghost" onclick={cancelEdit}>{t('common.cancel')}</Button>
-			</div>
 		</form>
-	</Card>
+		{#snippet footer()}
+			<Button type="submit" form="provider-form" loading={saving}>{t('common.save')}</Button>
+			<Button type="button" variant="ghost" onclick={cancelEdit}>{t('common.cancel')}</Button>
+		{/snippet}
+	</Modal>
 {/if}
 
 <style>
+	.settings-stack {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
+	}
+
 	form {
 		display: flex;
 		flex-direction: column;

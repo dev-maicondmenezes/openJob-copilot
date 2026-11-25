@@ -38,7 +38,7 @@
 		}
 	}
 
-	async function act(action: 'score' | 'approve' | 'discard'): Promise<void> {
+	async function act(action: 'approve' | 'discard'): Promise<void> {
 		if (!job) return;
 		busy = true;
 		try {
@@ -87,7 +87,6 @@
 	<Card>
 		<JobDetail {job}>
 			{#snippet actions()}
-				<Button variant="secondary" loading={busy} onclick={() => act('score')}>{t('jobdetail.score')}</Button>
 				<Button loading={busy} disabled={job!.status !== 'new'} onclick={() => act('approve')}>{t('jobdetail.approve')}</Button>
 				<Button variant="danger" loading={busy} disabled={job!.status === 'discarded'} onclick={() => act('discard')}>{t('jobdetail.discard')}</Button>
 			{/snippet}

@@ -13,6 +13,9 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/maicondmenezes/openjob/internal/aiusage"
+	"github.com/maicondmenezes/openjob/internal/config"
+	"github.com/maicondmenezes/openjob/internal/deterministic"
 	"github.com/maicondmenezes/openjob/internal/events"
 	"github.com/maicondmenezes/openjob/internal/jobfetch"
 	"github.com/maicondmenezes/openjob/internal/llm"
@@ -24,11 +27,29 @@ import (
 // bus (CP10) publishes application lifecycle events to the in-app notifier
 // and to any future channel; publishing is best-effort.
 type jobsAPI struct {
-	repo      store.Repository
-	masterKey []byte
-	llm       llm.Client
-	logger    *slog.Logger
-	bus       *events.Bus
+	repo          store.Repository
+	masterKey     []byte
+	llm           llm.Client
+	logger        *slog.Logger
+	bus           *events.Bus
+	deterministic *deterministic.Service
+	features      config.Features
+	scoreEnqueuer scoreEnqueuer
+}
+
+// scoreEnqueuer enqueues an automatic AI rescore when the user opted into AI.
+type scoreEnqueuer interface {
+	EnqueueScoreJob(ctx context.Context, jobID int64, priority int) error
+}
+
+// useDeterministicScore reports whether the local engine should score jobs.
+// The deterministic path is the default; it is skipped only when the user
+// explicitly enabled AI for scoring.
+func (j *jobsAPI) useDeterministicScore(ctx context.Context) bool {
+	if j.deterministic == nil || !j.features.ScoreDeterministic {
+		return false
+	}
+	return !aiusage.Load(ctx, j.repo).Score
 }
 
 // registerJobs mounts the jobs and applications-list routes.
@@ -120,7 +141,32 @@ func (j *jobsAPI) createManual(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{
+	ctx := r.Context()
+	var scoreFit *int
+	scoreReason := ""
+	if j.deterministic != nil && j.features.ScoreDeterministic {
+		if err := j.deterministic.IndexJob(ctx, id, req.Title, req.Description); err != nil {
+			j.logger.Warn("index manual job failed", "id", id, "err", err)
+		}
+	}
+	if j.useDeterministicScore(ctx) {
+		if cur, err := j.repo.LatestCurriculum(ctx); err == nil && cur.ContentMD != "" {
+			if res, err := j.deterministic.ScoreJob(ctx, cur.ContentMD, req.Title, req.Description); err == nil {
+				if err := j.repo.SetJobScore(ctx, id, res.Score, res.Reason); err == nil {
+					scoreFit = &res.Score
+					scoreReason = res.Reason
+				}
+			} else {
+				j.logger.Warn("auto deterministic score failed", "id", id, "err", err)
+			}
+		}
+	} else if aiusage.Load(ctx, j.repo).Score && j.scoreEnqueuer != nil {
+		if err := j.scoreEnqueuer.EnqueueScoreJob(ctx, id, 1); err != nil {
+			j.logger.Warn("enqueue auto AI score failed", "id", id, "err", err)
+		}
+	}
+
+	payload := map[string]any{
 		"id":          id,
 		"title":       req.Title,
 		"company":     req.Company,
@@ -128,7 +174,14 @@ func (j *jobsAPI) createManual(w http.ResponseWriter, r *http.Request) {
 		"description": req.Description,
 		"source":      "manual",
 		"status":      "new",
-	})
+	}
+	if scoreFit != nil {
+		payload["score_fit"] = *scoreFit
+		payload["score_reason"] = scoreReason
+	} else {
+		payload["score_fit"] = nil
+	}
+	writeJSON(w, http.StatusCreated, payload)
 }
 
 // ---- POST /api/jobs/fetch ----------------------------------------------------
@@ -298,6 +351,35 @@ func (j *jobsAPI) scoreJob(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		j.logger.Error("fetch curriculum failed", "err", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao consultar currículo"})
+		return
+	}
+
+	if j.useDeterministicScore(ctx) {
+		if err := j.deterministic.IndexJob(ctx, jobID, job.Title, job.Description); err != nil {
+			j.logger.Warn("index job before deterministic score failed", "id", jobID, "err", err)
+		}
+		res, err := j.deterministic.ScoreJob(ctx, cur.ContentMD, job.Title, job.Description)
+		if err != nil {
+			j.logger.Error("deterministic scoring failed", "id", jobID, "err", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao calcular score determinístico"})
+			return
+		}
+		if err := j.repo.SetJobScore(ctx, jobID, res.Score, res.Reason); err != nil {
+			j.logger.Error("persist job score failed", "id", jobID, "err", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao salvar score da vaga"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"id":                jobID,
+			"score_fit":         res.Score,
+			"score_reason":      res.Reason,
+			"raw_bm25":          res.RawBM25,
+			"calibrated":        res.Calibrated,
+			"mechanism_version": res.MechanismVersion,
+			"resource_version":  res.ResourceVersion,
+			"index_version":     res.IndexVersion,
+			"prompt_version":    "deterministic",
+		})
 		return
 	}
 

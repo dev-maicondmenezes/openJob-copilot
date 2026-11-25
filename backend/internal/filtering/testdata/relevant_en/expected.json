@@ -1,0 +1,13 @@
+{
+  "accepted": true,
+  "match_count": 3,
+  "matched_terms": [
+    "electronic health records",
+    "patient care",
+    "triage"
+  ],
+  "missing_terms": [
+    "bachelor of nursing"
+  ],
+  "score": 59
+}

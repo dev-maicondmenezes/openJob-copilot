@@ -11,8 +11,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/maicondmenezes/openjob/internal/aiusage"
 	"github.com/maicondmenezes/openjob/internal/discovery/ratelimit"
 	"github.com/maicondmenezes/openjob/internal/events"
+	"github.com/maicondmenezes/openjob/internal/filtering"
 	"github.com/maicondmenezes/openjob/internal/llm"
 	"github.com/maicondmenezes/openjob/internal/score"
 	"github.com/maicondmenezes/openjob/internal/store"
@@ -26,9 +28,9 @@ const (
 )
 
 // Orchestrator coordinates vacancy discovery across all enabled sources,
-// executing keyword and resume filters, deduplicating, and queueing scoring
-// (CP10: batch scoring moved to the tasks queue; inline only as a fallback
-// when no enqueuer is wired, e.g. unit tests).
+// executing keyword and resume filters, deduplicating, and scoring. AI scoring
+// is queued (CP10); deterministic scoring runs inline so a discovered job has
+// its fit as soon as the run returns.
 type Orchestrator struct {
 	repo      store.Repository
 	registry  *Registry
@@ -51,6 +53,50 @@ type Orchestrator struct {
 	tickerMu   sync.Mutex
 	ticker     *time.Ticker
 	tickerStop chan struct{}
+
+	// Optional deterministic integrations (Fase 5). When nil the legacy
+	// heuristics remain active, preserving rollback through feature flags.
+	keywordExtractor    KeywordExtractor
+	resumeFilterer      ResumeFilterer
+	jobIndexer          JobIndexer
+	deterministicScorer DeterministicScorer
+}
+
+// KeywordExtractor extracts resume keywords deterministically.
+type KeywordExtractor func(curriculumMD string, topN int) []string
+
+// ResumeFilterer applies the deterministic filter policy to one vacancy.
+type ResumeFilterer interface {
+	FilterJob(ctx context.Context, jobID int64, resumeKeywords []string, curriculumMD, title, description string, policy filtering.Policy) (filtering.Result, error)
+}
+
+// JobIndexer stores vacancies in the global search index.
+type JobIndexer interface {
+	IndexJob(ctx context.Context, jobID int64, title, description string) error
+}
+
+// DeterministicScorer computes the deterministic fit without the LLM.
+type DeterministicScorer func(ctx context.Context, curriculumMD, title, description string) (score int, reason string, err error)
+
+// SetKeywordExtractor wires deterministic keyword extraction.
+func (o *Orchestrator) SetKeywordExtractor(extractor KeywordExtractor) {
+	o.keywordExtractor = extractor
+}
+
+// SetResumeFilterer wires the deterministic resume filter.
+func (o *Orchestrator) SetResumeFilterer(filterer ResumeFilterer) {
+	o.resumeFilterer = filterer
+}
+
+// SetJobIndexer wires the global job search index.
+func (o *Orchestrator) SetJobIndexer(indexer JobIndexer) {
+	o.jobIndexer = indexer
+}
+
+// SetDeterministicScorer wires the inline deterministic scoring fallback used
+// when no task queue is present.
+func (o *Orchestrator) SetDeterministicScorer(scorer DeterministicScorer) {
+	o.deterministicScorer = scorer
 }
 
 // ScoreEnqueuer receives the new jobs of a run for asynchronous scoring —
@@ -103,8 +149,9 @@ func (o *Orchestrator) WaiterFor(sourceID string, caps Capabilities) *ratelimit.
 	})
 }
 
-// SetScoreEnqueuer wires the async scoring queue (CP10). When nil, scoring
-// stays inline (legacy path used by unit tests).
+// SetScoreEnqueuer wires the async scoring queue (CP10), used for AI scoring.
+// Deterministic scoring runs inline; nil keeps the legacy inline path for
+// unit tests.
 func (o *Orchestrator) SetScoreEnqueuer(e ScoreEnqueuer) {
 	o.enqueuer = e
 }
@@ -219,6 +266,11 @@ func (o *Orchestrator) RefreshResumeKeywords(ctx context.Context) ([]string, err
 	}
 
 	keywords := ExtractResumeKeywords(curriculum.ContentMD, 20)
+	if o.keywordExtractor != nil {
+		if extracted := o.keywordExtractor(curriculum.ContentMD, 20); len(extracted) > 0 {
+			keywords = extracted
+		}
+	}
 	b, err := json.Marshal(keywords)
 	if err != nil {
 		return nil, err
@@ -337,6 +389,14 @@ func (o *Orchestrator) runPipeline(ctx context.Context, runID int64) (RunStats, 
 		// Attempt auto-extraction on the fly
 		if extracted, err := o.RefreshResumeKeywords(ctx); err == nil && len(extracted) > 0 {
 			resumeKeywords = extracted
+		}
+	}
+
+	// The deterministic filter needs the full curriculum text; load it once.
+	curriculumMD := ""
+	if cfg.ResumeFilter.Enabled && o.resumeFilterer != nil {
+		if cur, err := o.repo.LatestCurriculum(ctx); err == nil {
+			curriculumMD = cur.ContentMD
 		}
 	}
 
@@ -549,11 +609,7 @@ func (o *Orchestrator) runPipeline(ctx context.Context, runID int64) (RunStats, 
 		}
 
 		// 2. Resume filter (curriculum adherence threshold)
-		resMatch := true
-		var matchedResume []string
-		if cfg.ResumeFilter.Enabled && len(resumeKeywords) > 0 {
-			resMatch, matchedResume = FilterResume(job.Title, job.Description, resumeKeywords, cfg.ResumeFilter.MinMatches, cfg.ResumeFilter.MatchMode)
-		}
+		resMatch, matchedResume := o.filterResumeDecision(ctx, job.Title, job.Description, resumeKeywords, curriculumMD, cfg)
 		if !resMatch {
 			stats.FilteredResume++
 			continue
@@ -582,6 +638,12 @@ func (o *Orchestrator) runPipeline(ctx context.Context, runID int64) (RunStats, 
 			continue
 		}
 
+		if o.jobIndexer != nil {
+			if err := o.jobIndexer.IndexJob(ctx, id, job.Title, job.Description); err != nil {
+				o.logger.Warn("orchestrator: index job failed", "job_id", id, "err", err)
+			}
+		}
+
 		stats.NewJobs++
 		newJobsToScore = append(newJobsToScore, jobToScore{
 			ID:                 id,
@@ -598,14 +660,16 @@ func (o *Orchestrator) runPipeline(ctx context.Context, runID int64) (RunStats, 
 		return newJobsToScore[i].ResumeMatchesCount > newJobsToScore[j].ResumeMatchesCount
 	})
 
-	if len(newJobsToScore) > maxBatchScoringPerRun {
+	deterministic := o.deterministicScoringActive(ctx)
+	if len(newJobsToScore) > maxBatchScoringPerRun && !deterministic {
 		newJobsToScore = newJobsToScore[:maxBatchScoringPerRun]
 	}
 
-	// 4. Scoring (CP10): enqueue into the tasks queue, prioritized by resume
-	// match count (lower priority value runs first). Legacy inline scoring
-	// remains only when no queue is wired (unit tests).
-	if o.enqueuer != nil {
+	// 4. Scoring. Deterministic scoring is local and fast, so it runs inline
+	// during discovery: the jobs are already scored when the run returns and
+	// the UI never shows a freshly discovered job without a fit. AI scoring
+	// still goes through the queue, where the rate limiter applies.
+	if o.enqueuer != nil && !deterministic {
 		enqueued := 0
 		for _, j := range newJobsToScore {
 			prio := scoringPriority(j.ResumeMatchesCount)
@@ -633,8 +697,61 @@ func scoringPriority(matches int) int {
 	return prio
 }
 
+// filterResumeDecision applies the resume filter, preferring the deterministic
+// engine and falling back to the legacy heuristic when unavailable.
+func (o *Orchestrator) filterResumeDecision(ctx context.Context, title, description string, resumeKeywords []string, curriculumMD string, cfg Config) (bool, []string) {
+	if !cfg.ResumeFilter.Enabled || len(resumeKeywords) == 0 {
+		return true, nil
+	}
+	if o.resumeFilterer != nil && curriculumMD != "" {
+		policy := filtering.Policy{
+			MinMatches: cfg.ResumeFilter.MinMatches,
+			MatchMode:  cfg.ResumeFilter.MatchMode,
+		}
+		if result, err := o.resumeFilterer.FilterJob(ctx, 0, resumeKeywords, curriculumMD, title, description, policy); err == nil {
+			return result.Accepted, result.MatchedTerms
+		} else {
+			o.logger.Warn("orchestrator: deterministic filter failed, using legacy", "err", err)
+		}
+	}
+	return FilterResume(title, description, resumeKeywords, cfg.ResumeFilter.MinMatches, cfg.ResumeFilter.MatchMode)
+}
+
+func (o *Orchestrator) deterministicScoringActive(ctx context.Context) bool {
+	return o.deterministicScorer != nil && !aiusage.Load(ctx, o.repo).Score
+}
+
 func (o *Orchestrator) batchScore(ctx context.Context, jobs []jobToScore) int {
-	if len(jobs) == 0 || o.llmClient == nil {
+	if len(jobs) == 0 {
+		return 0
+	}
+
+	curriculum, err := o.repo.LatestCurriculum(ctx)
+	if err != nil || curriculum.ContentMD == "" {
+		return 0
+	}
+
+	if o.deterministicScoringActive(ctx) {
+		scoredCount := 0
+		for _, j := range jobs {
+			select {
+			case <-ctx.Done():
+				return scoredCount
+			default:
+			}
+			score, reason, err := o.deterministicScorer(ctx, curriculum.ContentMD, j.Title, j.Description)
+			if err != nil {
+				o.logger.Warn("orchestrator: deterministic scoring failed for job", "job_id", j.ID, "err", err)
+				continue
+			}
+			if err := o.repo.SetJobScore(ctx, j.ID, score, reason); err == nil {
+				scoredCount++
+			}
+		}
+		return scoredCount
+	}
+
+	if o.llmClient == nil {
 		return 0
 	}
 
@@ -654,11 +771,6 @@ func (o *Orchestrator) batchScore(ctx context.Context, jobs []jobToScore) int {
 		Model:   model,
 		APIKey:  apiKey,
 	}.Normalize()
-
-	curriculum, err := o.repo.LatestCurriculum(ctx)
-	if err != nil || curriculum.ContentMD == "" {
-		return 0
-	}
 
 	scoredCount := 0
 	for _, j := range jobs {

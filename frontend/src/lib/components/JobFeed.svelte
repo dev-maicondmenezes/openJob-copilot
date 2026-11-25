@@ -25,7 +25,6 @@
 	let jobs: Job[] = $state([]);
 	let loading = $state(true);
 	let discovering = $state(false);
-	let scoringId = $state<number | null>(null);
 	let actingId = $state<number | null>(null);
 
 	// Navegação no feed
@@ -170,25 +169,6 @@
 			toast('error', t('jobs.error.discard_network'));
 		} finally {
 			actingId = null;
-		}
-	}
-
-	async function score(job: Job): Promise<void> {
-		scoringId = job.id;
-		try {
-			const res = await fetch(`/api/jobs/${job.id}/score`, { method: 'POST' });
-			const body = await res.json().catch(() => ({}));
-			if (res.ok) {
-				job.score_fit = body.score_fit;
-				job.score_reason = body.score_reason;
-				toast('success', t('jobs.flash.scored', { score: body.score_fit }));
-			} else {
-				toast('error', errorText(body, t('jobs.error.score_http', { status: res.status })));
-			}
-		} catch {
-			toast('error', t('jobs.error.score_network'));
-		} finally {
-			scoringId = null;
 		}
 	}
 
@@ -417,9 +397,7 @@
 							active={i === activeIndex}
 							onApprove={approve}
 							onDiscard={discard}
-							onScore={score}
 							acting={actingId === job.id}
-							scoring={scoringId === job.id}
 						/>
 					{:else}
 						<div class="feed-slot-placeholder" aria-hidden="true"></div>

@@ -1,0 +1,17 @@
+{
+  "score": 4,
+  "raw_bm25": 2.772588722239781,
+  "matched_terms": [
+    "Excel"
+  ],
+  "missing_terms": [
+    "Contadora",
+    "auditoria",
+    "avançado",
+    "compliance",
+    "demonstrações",
+    "experiência",
+    "financeiras",
+    "tributário"
+  ]
+}

@@ -13,10 +13,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/maicondmenezes/openjob/internal/config"
+	"github.com/maicondmenezes/openjob/internal/deterministic"
 	"github.com/maicondmenezes/openjob/internal/discovery"
 	"github.com/maicondmenezes/openjob/internal/events"
 	"github.com/maicondmenezes/openjob/internal/llm"
 	"github.com/maicondmenezes/openjob/internal/notifier"
+	"github.com/maicondmenezes/openjob/internal/ranking"
 	"github.com/maicondmenezes/openjob/internal/store"
 	"github.com/maicondmenezes/openjob/internal/tasks"
 	"github.com/maicondmenezes/openjob/web"
@@ -72,12 +74,53 @@ func New(cfg config.Config, logger *slog.Logger, repo store.Repository, masterKe
 
 	orch := discovery.NewOrchestrator(repo, nil, masterKey, llmClient, logger)
 
+	// Fase 5 / B11: deterministic infrastructure (NLP core, keywords, ranking,
+	// filtering). It is always constructed so feature flags can enable it at
+	// runtime without changing wiring; the legacy paths stay available.
+	detSvc, detErr := deterministic.New(deterministic.DefaultOptions(repo))
+	if detErr != nil {
+		logger.Error("deterministic service unavailable", "err", detErr)
+	}
+	if detSvc != nil {
+		if cfg.Features.KeywordsEnabled() {
+			orch.SetKeywordExtractor(func(md string, topN int) []string {
+				kws, err := detSvc.ExtractKeywordStrings(context.Background(), md, topN)
+				if err != nil {
+					return nil
+				}
+				return kws
+			})
+		}
+		if cfg.Features.FilterEnabled() {
+			orch.SetResumeFilterer(detSvc)
+		}
+		if cfg.Features.ScoreDeterministic {
+			orch.SetJobIndexer(detSvc)
+			orch.SetDeterministicScorer(func(ctx context.Context, curriculumMD, title, description string) (int, string, error) {
+				res, err := detSvc.ScoreJob(ctx, curriculumMD, title, description)
+				if err != nil {
+					return 0, "", err
+				}
+				return res.Score, res.Reason, nil
+			})
+			rebuildJobIndex(context.Background(), repo, detSvc, logger)
+		}
+	}
+
 	// CP10: durable task queue (docs/adr/0010) with the migrated AI handlers.
 	// CP14 adds discover_sources so repeated "Buscar agora" clicks are queued
 	// and serialized instead of being rejected/lost.
 	registry := tasks.NewRegistry()
-	registry.Register(tasks.NewScoreJobHandler(repo, masterKey, llmClient, rate.NewLimiter(rate.Every(300*time.Millisecond), 1), logger))
-	registry.Register(tasks.NewExtractKeywordsHandler(repo))
+	scoreHandler := tasks.NewScoreJobHandler(repo, masterKey, llmClient, rate.NewLimiter(rate.Every(300*time.Millisecond), 1), logger)
+	if detSvc != nil {
+		scoreHandler.SetDeterministic(detSvc, cfg.Features.ScoreDeterministic)
+	}
+	registry.Register(scoreHandler)
+	keywordHandler := tasks.NewExtractKeywordsHandler(repo)
+	if detSvc != nil {
+		keywordHandler.SetDeterministic(detSvc, cfg.Features.KeywordsEnabled())
+	}
+	registry.Register(keywordHandler)
 	registry.Register(tasks.NewDiscoverHandler(orch, logger))
 	registry.Register(tasks.NewSyncEmailHandler(repo, masterKey, llmClient, bus, logger, nil))
 	taskCfg, _ := tasks.LoadConfig(context.Background(), repo)
@@ -112,11 +155,14 @@ func New(cfg config.Config, logger *slog.Logger, repo store.Repository, masterKe
 			logger:    logger,
 		})
 		registerJobs(r, &jobsAPI{
-			repo:      repo,
-			masterKey: masterKey,
-			llm:       llmClient,
-			logger:    logger,
-			bus:       bus,
+			repo:          repo,
+			masterKey:     masterKey,
+			llm:           llmClient,
+			logger:        logger,
+			bus:           bus,
+			deterministic: detSvc,
+			features:      cfg.Features,
+			scoreEnqueuer: tasks.DiscoveryEnqueuer{Pool: pool},
 		})
 		registerSources(r, &sourcesAPI{
 			repo:         repo,
@@ -195,10 +241,12 @@ func handleHealth(cfg config.Config, repo store.Repository) http.HandlerFunc {
 func handleFeatures(cfg config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]bool{
-			"ui.feed":             cfg.Features.UIFeed,
-			"email.sync":          cfg.Features.EmailSync,
-			"curriculum.export":   cfg.Features.CurriculumExport,
-			"score.deterministic": cfg.Features.ScoreDeterministic,
+			"ui.feed":                cfg.Features.UIFeed,
+			"email.sync":             cfg.Features.EmailSync,
+			"curriculum.export":      cfg.Features.CurriculumExport,
+			"score.deterministic":    cfg.Features.ScoreDeterministic,
+			"keywords.deterministic": cfg.Features.KeywordsEnabled(),
+			"filter.deterministic":   cfg.Features.FilterEnabled(),
 		})
 	}
 }
@@ -209,6 +257,47 @@ func failedSince(ctx context.Context, repo store.Repository) int {
 		return 0
 	}
 	return n
+}
+
+// rebuildJobIndex repopulates the global FTS index from the jobs table. It is
+// best-effort: a failure is logged and the legacy path keeps working.
+func rebuildJobIndex(ctx context.Context, repo store.Repository, svc *deterministic.Service, logger *slog.Logger) {
+	jobs, err := repo.ListJobs(ctx, "")
+	if err != nil {
+		logger.Warn("rebuild job index: list jobs failed", "err", err)
+		return
+	}
+	texts := jobTexts(jobs)
+	if err := svc.RebuildIndex(ctx, texts); err != nil {
+		logger.Warn("rebuild job index failed", "err", err)
+		return
+	}
+	logger.Info("job search index ready", "documents", len(texts))
+}
+
+// jobTexts converts stored jobs into index documents, defensively deduplicating
+// the corpus. The database already enforces UNIQUE(url); this also collapses
+// URL-less manual duplicates by normalized content.
+func jobTexts(jobs []store.Job) []ranking.JobText {
+	seenURL := make(map[string]struct{}, len(jobs))
+	seenContent := make(map[string]struct{}, len(jobs))
+	texts := make([]ranking.JobText, 0, len(jobs))
+	for _, job := range jobs {
+		if url := strings.ToLower(strings.TrimSpace(job.URL)); url != "" {
+			if _, ok := seenURL[url]; ok {
+				continue
+			}
+			seenURL[url] = struct{}{}
+		} else {
+			content := strings.ToLower(strings.Join(strings.Fields(job.Title+"\n"+job.Company+"\n"+job.Description), " "))
+			if _, ok := seenContent[content]; ok {
+				continue
+			}
+			seenContent[content] = struct{}{}
+		}
+		texts = append(texts, ranking.JobText{JobID: job.ID, Title: job.Title, Description: job.Description})
+	}
+	return texts
 }
 
 // spaHandler serves files from the embedded SPA bundle. Any path that does

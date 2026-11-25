@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/maicondmenezes/openjob/internal/deterministic"
+	"github.com/maicondmenezes/openjob/internal/discovery"
 	"github.com/maicondmenezes/openjob/internal/llm"
 	"github.com/maicondmenezes/openjob/internal/score"
 	"github.com/maicondmenezes/openjob/internal/store"
@@ -112,4 +114,122 @@ func TestScoreHandlerSharedLimiter(t *testing.T) {
 	if elapsed < 100*time.Millisecond {
 		t.Fatalf("shared limiter did not serialize: %s", elapsed)
 	}
+}
+
+// countingLLM fails the test if the deterministic path ever calls the LLM.
+type countingLLM struct{ calls int }
+
+func (c *countingLLM) Ping(context.Context, llm.Config) error { c.calls++; return nil }
+func (c *countingLLM) Complete(context.Context, llm.Config, llm.CompletionRequest) (string, error) {
+	c.calls++
+	return "", nil
+}
+
+func TestScoreHandlerDeterministicSkipsLLM(t *testing.T) {
+	repo, err := store.Open(filepath.Join(t.TempDir(), "openjob.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = repo.Close() }()
+	ctx := context.Background()
+
+	if _, err := repo.SaveCurriculum(ctx, store.Curriculum{ContentMD: "Go, Docker, Kubernetes, PostgreSQL"}); err != nil {
+		t.Fatal(err)
+	}
+	jobID, err := repo.CreateJob(ctx, store.Job{
+		Title: "Backend Go", Company: "Acme", Description: "Requisitos\n- Go\n- Docker\n- PostgreSQL", Source: "manual", Status: "new",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	svc, err := deterministic.New(deterministic.DefaultOptions(repo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := &countingLLM{}
+	h := NewScoreJobHandler(repo, nil, fake, rate.NewLimiter(rate.Inf, 0), nil)
+	h.SetDeterministic(svc, true)
+
+	out, err := h.Run(ctx, mustJSON(t, map[string]any{"job_id": jobID}), func(int) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.calls != 0 {
+		t.Fatalf("LLM called %d times on deterministic path", fake.calls)
+	}
+	var result struct {
+		ScoreFit         int    `json:"score_fit"`
+		MechanismVersion string `json:"mechanism_version"`
+		IndexVersion     string `json:"index_version"`
+		Calibrated       bool   `json:"calibrated"`
+	}
+	if err := json.Unmarshal(out, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.ScoreFit <= 0 || result.MechanismVersion == "" || result.IndexVersion == "" {
+		t.Fatalf("unexpected deterministic result: %+v", result)
+	}
+	if result.Calibrated {
+		t.Fatalf("calibrated = true, want false: %+v", result)
+	}
+	job, err := repo.GetJob(ctx, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.ScoreFit == nil || *job.ScoreFit != result.ScoreFit {
+		t.Fatalf("persisted score = %v, want %d", job.ScoreFit, result.ScoreFit)
+	}
+}
+
+func TestExtractKeywordsHandlerDeterministic(t *testing.T) {
+	repo, err := store.Open(filepath.Join(t.TempDir(), "openjob.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = repo.Close() }()
+	ctx := context.Background()
+
+	curriculum := "## Experiência\n\nGo, Docker e Kubernetes.\n\n## Habilidades\n\nPostgreSQL e Redis."
+	if _, err := repo.SaveCurriculum(ctx, store.Curriculum{ContentMD: curriculum}); err != nil {
+		t.Fatal(err)
+	}
+	svc, err := deterministic.New(deterministic.DefaultOptions(repo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewExtractKeywordsHandler(repo)
+	h.SetDeterministic(svc, true)
+
+	out, err := h.Run(ctx, nil, func(int) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Count            int      `json:"count"`
+		Keywords         []string `json:"keywords"`
+		AlgorithmVersion string   `json:"algorithm_version"`
+	}
+	if err := json.Unmarshal(out, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Count == 0 || len(result.Keywords) == 0 {
+		t.Fatalf("no keywords: %+v", result)
+	}
+	if result.AlgorithmVersion == "" {
+		t.Fatal("algorithm_version missing")
+	}
+	raw, err := repo.GetSetting(ctx, discovery.SettingResumeKeywords)
+	if err != nil || raw == "" {
+		t.Fatalf("keywords not persisted: %v", err)
+	}
+}
+
+func mustJSON(t *testing.T, v any) json.RawMessage {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }

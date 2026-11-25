@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/maicondmenezes/openjob/internal/aiusage"
 	"github.com/maicondmenezes/openjob/internal/llm"
 	"github.com/maicondmenezes/openjob/internal/store"
 )
@@ -52,6 +53,8 @@ func registerSettings(r chi.Router, s *settingsAPI) {
 	r.Get("/settings/llm-key", s.llmKeyStatus)
 	r.Get("/settings/llm", s.llmConfig) // non-secret values for UI hydration
 	r.Post("/settings/llm-ping", s.pingLLM)
+	r.Get("/settings/ai", s.getAIUsage)
+	r.Put("/settings/ai", s.updateAIUsage)
 	registerSettingsProfiles(r, s)
 }
 
@@ -75,6 +78,28 @@ func (s *settingsAPI) getSettings(w http.ResponseWriter, r *http.Request) {
 
 type appearanceRequest struct {
 	Locale string `json:"locale"`
+}
+
+// getAIUsage reports whether scoring may call the AI provider.
+func (s *settingsAPI) getAIUsage(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, aiusage.Load(r.Context(), s.repo))
+}
+
+// updateAIUsage persists the scoring AI opt-in. False keeps the deterministic
+// engine, which is the default.
+func (s *settingsAPI) updateAIUsage(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxAppearanceBody)
+	var req aiusage.Settings
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_json", "invalid JSON", nil)
+		return
+	}
+	if err := aiusage.Save(r.Context(), s.repo, req); err != nil {
+		s.logger.Error("persist ai usage failed", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to save AI settings"})
+		return
+	}
+	writeJSON(w, http.StatusOK, req)
 }
 
 func isSupportedLocale(locale string) bool {

@@ -14,9 +14,7 @@
 		active: boolean;
 		onApprove: (job: Job) => Promise<void>;
 		onDiscard: (job: Job) => Promise<void>;
-		onScore: (job: Job) => Promise<void>;
 		acting?: boolean;
-		scoring?: boolean;
 	}
 
 	let {
@@ -26,9 +24,7 @@
 		active,
 		onApprove,
 		onDiscard,
-		onScore,
-		acting = false,
-		scoring = false
+		acting = false
 	}: Props = $props();
 
 	function getTeaser(text: string, maxLen = 280): string {
@@ -122,18 +118,6 @@
 				<Icon name="check" size={16} />
 				<span>{t('jobs.card_apply')}</span>
 			</Button>
-
-			{#if job.score_fit === null}
-				<Button
-					variant="secondary"
-					size="sm"
-					loading={scoring}
-					onclick={() => onScore(job)}
-				>
-					<Icon name="sparkles" size={16} />
-					<span>{t('common.score')}</span>
-				</Button>
-			{/if}
 
 			<Button
 				variant="ghost"

@@ -198,3 +198,50 @@ func TestLLMPingAgainstFakeProvider(t *testing.T) {
 
 // Compile-time guard: the API depends on the llm.Client abstraction only.
 var _ llm.Client = llm.NewOpenAIClient()
+
+func TestAIUsageSettingsDefaultAndUpdate(t *testing.T) {
+	srv := newTestServer(t)
+
+	status, body, decoded := call(t, srv, http.MethodGet, "/api/settings/ai", nil)
+	if status != http.StatusOK {
+		t.Fatalf("get status = %d, body = %s", status, body)
+	}
+	if decoded["score"] != false {
+		t.Errorf("score = %v, want false (deterministic default)", decoded["score"])
+	}
+
+	status, body, decoded = call(t, srv, http.MethodPut, "/api/settings/ai", map[string]bool{
+		"score": true,
+	})
+	if status != http.StatusOK {
+		t.Fatalf("put status = %d, body = %s", status, body)
+	}
+	if decoded["score"] != true {
+		t.Fatalf("score = %v, want true (body %s)", decoded["score"], body)
+	}
+
+	status, body, decoded = call(t, srv, http.MethodGet, "/api/settings/ai", nil)
+	if status != http.StatusOK {
+		t.Fatalf("get after put status = %d, body = %s", status, body)
+	}
+	if decoded["score"] != true {
+		t.Fatalf("persisted settings = %v, body = %s", decoded, body)
+	}
+}
+
+func TestAIUsageSettingsRejectInvalidJSON(t *testing.T) {
+	srv := newTestServer(t)
+	req, err := http.NewRequest(http.MethodPut, srv.URL+"/api/settings/ai", strings.NewReader("{"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+}

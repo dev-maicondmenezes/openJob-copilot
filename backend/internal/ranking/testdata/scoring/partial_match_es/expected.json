@@ -1,0 +1,17 @@
+{
+  "score": 13,
+  "raw_bm25": 8.317766166719343,
+  "matched_terms": [
+    "Analytics",
+    "Google",
+    "SEO"
+  ],
+  "missing_terms": [
+    "Profesional",
+    "contenidos",
+    "copywriting",
+    "digital",
+    "marketing",
+    "redacción"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "accepted": true,
+  "match_count": 2,
+  "matched_terms": [
+    "gestão de sala de aula",
+    "planejamento de aulas"
+  ],
+  "missing_terms": [
+    "desenvolvimento curricular",
+    "pós-graduação"
+  ],
+  "score": 25
+}

@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "stopwords": {
+    "pt-BR": "stopwords/pt.txt",
+    "en-US": "stopwords/en.txt",
+    "es-419": "stopwords/es.txt"
+  },
+  "algorithms": {
+    "normalization": "nfkc-lowercase-v1",
+    "tokenizer": "unicode-technical-v1",
+    "stemmer": "snowball-go-stemmers",
+    "language": "stopword-frequency-v1"
+  },
+  "licenses": [
+    "licenses/stopwords-iso.txt"
+  ]
+}

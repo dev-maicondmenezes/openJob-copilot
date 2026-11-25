@@ -8,7 +8,10 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/maicondmenezes/openjob/internal/aiusage"
+	"github.com/maicondmenezes/openjob/internal/deterministic"
 	"github.com/maicondmenezes/openjob/internal/discovery"
+	kwengine "github.com/maicondmenezes/openjob/internal/keywords"
 	"github.com/maicondmenezes/openjob/internal/llm"
 	"github.com/maicondmenezes/openjob/internal/score"
 	"github.com/maicondmenezes/openjob/internal/store"
@@ -31,6 +34,9 @@ type ScoreJobHandler struct {
 	// Rate limiting is the handler's job, not the pool's, letting free
 	// handlers (heuristics) run in parallel.
 	limiter *rate.Limiter
+
+	deterministic        *deterministic.Service
+	deterministicEnabled bool
 }
 
 // NewScoreJobHandler wires the handler. limiter may be nil in tests.
@@ -45,6 +51,13 @@ func NewScoreJobHandler(repo store.Repository, masterKey []byte, llmClient llm.C
 		logger:    logger,
 		limiter:   limiter,
 	}
+}
+
+// SetDeterministic wires the deterministic scoring path. When enabled and the
+// user has not opted into AI scoring, the handler never calls the LLM.
+func (h *ScoreJobHandler) SetDeterministic(svc *deterministic.Service, enabled bool) {
+	h.deterministic = svc
+	h.deterministicEnabled = enabled
 }
 
 func (h *ScoreJobHandler) Type() string { return TypeScoreJob }
@@ -66,6 +79,31 @@ func (h *ScoreJobHandler) Run(ctx context.Context, payload json.RawMessage, prog
 	curriculum, err := h.repo.LatestCurriculum(ctx)
 	if err != nil {
 		return nil, errors.New("nenhum currículo-base cadastrado para scoring")
+	}
+
+	if h.deterministicEnabled && h.deterministic != nil && !aiusage.Load(ctx, h.repo).Score {
+		progress(40)
+		res, err := h.deterministic.ScoreJob(ctx, curriculum.ContentMD, job.Title, job.Description)
+		if err != nil {
+			return nil, err
+		}
+		progress(90)
+		if err := h.repo.SetJobScore(ctx, p.JobID, res.Score, res.Reason); err != nil {
+			return nil, fmt.Errorf("falha ao persistir score da vaga %d: %w", p.JobID, err)
+		}
+		progress(100)
+		return json.Marshal(map[string]any{
+			"job_id":            p.JobID,
+			"score_fit":         res.Score,
+			"reason":            res.Reason,
+			"raw_bm25":          res.RawBM25,
+			"calibrated":        res.Calibrated,
+			"mechanism_version": res.MechanismVersion,
+			"resource_version":  res.ResourceVersion,
+			"index_version":     res.IndexVersion,
+			"job_label":         fmt.Sprintf("%s @ %s", job.Title, job.Company),
+			"curriculum":        curriculum.ID,
+		})
 	}
 
 	llmCfg, err := h.resolveLLMConfig(ctx)
@@ -125,11 +163,20 @@ func (h *ScoreJobHandler) resolveLLMConfig(ctx context.Context) (llm.Config, err
 // (pure heuristics, no LLM cost) and caches them in settings.
 type ExtractKeywordsHandler struct {
 	repo store.Repository
+
+	deterministic        *deterministic.Service
+	deterministicEnabled bool
 }
 
 // NewExtractKeywordsHandler wires the handler.
 func NewExtractKeywordsHandler(repo store.Repository) *ExtractKeywordsHandler {
 	return &ExtractKeywordsHandler{repo: repo}
+}
+
+// SetDeterministic wires the deterministic keyword engine.
+func (h *ExtractKeywordsHandler) SetDeterministic(svc *deterministic.Service, enabled bool) {
+	h.deterministic = svc
+	h.deterministicEnabled = enabled
 }
 
 func (h *ExtractKeywordsHandler) Type() string { return TypeExtractResumeKeywords }
@@ -147,6 +194,13 @@ func (h *ExtractKeywordsHandler) Run(ctx context.Context, _ json.RawMessage, pro
 	}
 
 	keywords := discovery.ExtractResumeKeywords(curriculum.ContentMD, 20)
+	algorithmVersion := ""
+	if h.deterministicEnabled && h.deterministic != nil {
+		if extracted, err := h.deterministic.ExtractKeywordStrings(ctx, curriculum.ContentMD, 20); err == nil && len(extracted) > 0 {
+			keywords = extracted
+			algorithmVersion = kwengine.AlgorithmVersion
+		}
+	}
 
 	progress(80)
 	b, err := json.Marshal(keywords)
@@ -158,10 +212,14 @@ func (h *ExtractKeywordsHandler) Run(ctx context.Context, _ json.RawMessage, pro
 	}
 	progress(100)
 
-	return json.Marshal(map[string]any{
+	payload := map[string]any{
 		"count":      len(keywords),
 		"keywords":   keywords,
 		"curriculum": curriculum.ID,
 		"at":         time.Now().UTC().Format(time.RFC3339),
-	})
+	}
+	if algorithmVersion != "" {
+		payload["algorithm_version"] = algorithmVersion
+	}
+	return json.Marshal(payload)
 }

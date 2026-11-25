@@ -1,0 +1,86 @@
+{
+  "keywords": [
+    {
+      "text": "equipes multidisciplinares fiscalização",
+      "normalized": "equip multidisciplin fiscaliz",
+      "section": "experiência",
+      "source": "yake",
+      "rank": 1,
+      "score": 0.042857
+    },
+    {
+      "text": "MS Project gestão",
+      "normalized": "ms project gestã",
+      "section": "habilidades",
+      "source": "yake",
+      "rank": 2,
+      "score": 0.042857
+    },
+    {
+      "text": "civil experiência gestão",
+      "normalized": "civil experient gestã",
+      "section": "resumo",
+      "source": "yake",
+      "rank": 3,
+      "score": 0.033333
+    },
+    {
+      "text": "equipes multidisciplinares",
+      "normalized": "equip multidisciplin",
+      "section": "experiência",
+      "source": "yake",
+      "rank": 4,
+      "score": 0.07619
+    },
+    {
+      "text": "MS Project",
+      "normalized": "ms project",
+      "section": "habilidades",
+      "source": "yake",
+      "rank": 5,
+      "score": 0.07619
+    },
+    {
+      "text": "experiência gestão projetos",
+      "normalized": "experient gestã projet",
+      "section": "resumo",
+      "source": "yake",
+      "rank": 6,
+      "score": 0.066667
+    },
+    {
+      "text": "multidisciplinares fiscalização obras",
+      "normalized": "multidisciplin fiscaliz obras",
+      "section": "experiência",
+      "source": "yake",
+      "rank": 7,
+      "score": 0.085714
+    },
+    {
+      "text": "Project gestão contratos",
+      "normalized": "project gestã contrat",
+      "section": "habilidades",
+      "source": "yake",
+      "rank": 8,
+      "score": 0.085714
+    },
+    {
+      "text": "civil experiência",
+      "normalized": "civil experient",
+      "section": "resumo",
+      "source": "yake",
+      "rank": 9,
+      "score": 0.066667
+    },
+    {
+      "text": "Coordenação equipes multidisciplinares",
+      "normalized": "coorden equip multidisciplin",
+      "section": "experiência",
+      "source": "yake",
+      "rank": 10,
+      "score": 0.1
+    }
+  ],
+  "algorithm_version": "yake-rake-1.0",
+  "resource_version": "1.0.0"
+}
