@@ -56,11 +56,14 @@ Paths tested and documented in [`docs/adr/0001-mdns-local-hostname.md`](docs/adr
 | `OPENJOB_FEATURE_UI_FEED` | `false` | Vertical feed as home (CP16) |
 | `OPENJOB_FEATURE_EMAIL_SYNC` | `false` | Email tracking + `in_process` pipeline (CP17) |
 | `OPENJOB_FEATURE_CURRICULUM_EXPORT` | `false` | Resume export (B10) |
-| `OPENJOB_FEATURE_SCORE_DETERMINISTIC` | `false` | Deterministic scoring refactor (B11) |
+| `OPENJOB_FEATURE_SCORE_DETERMINISTIC` | `true` | Deterministic scoring, no AI (B11) |
+| `OPENJOB_FEATURE_KEYWORDS_DETERMINISTIC` | `true` | Deterministic keyword extraction (B11) |
+| `OPENJOB_FEATURE_FILTER_DETERMINISTIC` | `true` | Deterministic resume filter (B11) |
 
-Release flags accept `true`/`1` (and `false`/`0`); anything else stays off. They
-are exposed by `GET /api/features` so the SPA can hide unfinished UI until the
-matching phase ships.
+UI/email/export flags accept `true`/`1` (and `false`/`0`); anything else stays
+off. Deterministic flags default on and can be set to `false`/`0` for rollback.
+They are exposed by `GET /api/features` so the SPA can hide unfinished UI until
+the matching phase ships.
 
 ### Local data & secrets — ⚠️ read this
 
@@ -156,11 +159,14 @@ Caminhos testados e documentados em [`docs/adr/0001-mdns-local-hostname.md`](doc
 | `OPENJOB_FEATURE_UI_FEED` | `false` | Feed vertical como home (CP16) |
 | `OPENJOB_FEATURE_EMAIL_SYNC` | `false` | Tracking de e-mail + pipeline `in_process` (CP17) |
 | `OPENJOB_FEATURE_CURRICULUM_EXPORT` | `false` | Exportação de currículo (B10) |
-| `OPENJOB_FEATURE_SCORE_DETERMINISTIC` | `false` | Refactor determinístico de scoring (B11) |
+| `OPENJOB_FEATURE_SCORE_DETERMINISTIC` | `true` | Scoring determinístico, sem IA (B11) |
+| `OPENJOB_FEATURE_KEYWORDS_DETERMINISTIC` | `true` | Extração determinística de keywords (B11) |
+| `OPENJOB_FEATURE_FILTER_DETERMINISTIC` | `true` | Filtro determinístico de currículo (B11) |
 
-Flags de release aceitam `true`/`1` (e `false`/`0`); qualquer outro valor fica
-desligado. Elas são expostas por `GET /api/features` para a SPA esconder UI
-inacabada até a fase correspondente entrar no ar.
+Flags de UI/e-mail/exportação aceitam `true`/`1` (e `false`/`0`); qualquer outro
+valor fica desligado. As flags determinísticas vêm ligadas e podem ser definidas
+como `false`/`0` para rollback. Elas são expostas por `GET /api/features` para a
+SPA esconder UI inacabada até a fase correspondente entrar no ar.
 
 ### Dados locais e segredos — ⚠️ leia
 

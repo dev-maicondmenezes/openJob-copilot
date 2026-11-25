@@ -407,33 +407,7 @@ upload manual continua funcional.
 
 ---
 
-## 11. Fase 7 — OAuth de provedores: B5 (5–8 dias, com gate)
-
-**Objetivo:** conectar plataformas homologadas via OAuth, sem colar chave.
-
-**Etapa 1 — Spike (1–2 dias):**
-- Verificar quais provedores OpenAI-compatible permitem OAuth público para app
-  pessoal; provável viável apenas Gemini (OAuth do Google Cloud).
-- **Gate go/no-go:** se nenhum provedor for viável sem cadastro complexo,
-  registrar decisão e manter B1/B2/B3 como caminho oficial do MVP.
-
-**Etapa 2 — Implementação (4–6 dias, se go):**
-- Callback local `http://<host>:8080/api/settings/llm/oauth/callback`.
-- Token entra no pipeline AES-GCM do BYOK; nunca logado.
-- Fallback manual por chave sempre disponível.
-- Revogação e expiração tratadas com erro amigável (catálogo da F2).
-
-**Testes e verificação:**
-- Conectar provedor homologado e fazer ping/tailoring sem colar chave.
-- Token cifrado, não ecoado, revogável.
-- Falha de OAuth cai no fluxo manual sem travar a UI.
-
-**Gate:** conexão OAuth funciona ou decisão no-go documentada; caminho manual
-permanece íntegro.
-
----
-
-## 12. Fase 8 — Hardening e release (2–3 dias)
+## 11. Fase 7 — Hardening e release (2–3 dias)
 
 **Objetivo:** validar o conjunto e publicar o MVP.
 
@@ -455,7 +429,7 @@ permanece íntegro.
 
 ---
 
-## 13. Matriz de rastreabilidade
+## 12. Matriz de rastreabilidade
 
 | Item | Fase | Teste principal |
 |---|---|---|
@@ -478,7 +452,7 @@ permanece íntegro.
 
 ---
 
-## 14. Riscos transversais e mitigação
+## 13. Riscos transversais e mitigação
 
 | Risco | Impacto | Mitigação |
 |---|---|---|
@@ -491,7 +465,7 @@ permanece íntegro.
 
 ---
 
-## 15. Ordem de merge e liberação
+## 14. Ordem de merge e liberação
 
 1. F0 (infra/documentação) — merge direto.
 2. F1 (CP16) — merge com flag `ui.feed`; liberar para uso interno.
@@ -503,7 +477,7 @@ permanece íntegro.
 
 ---
 
-## 16. Evolução pós-MVP — CP18 e CP19
+## 15. Evolução pós-MVP — CP18 e CP19
 
 As features seguintes são uma evolução posterior ao escopo congelado deste plano de release; não alteram os gates F0–F8 do MVP.
 
